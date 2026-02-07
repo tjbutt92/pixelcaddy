@@ -170,6 +170,15 @@ function decomposeSpinComponents(totalSpinRPM, spinAxisDegrees) {
 /**
  * Main trajectory simulation using numerical integration (Euler method)
  * Returns array of positions for the entire flight
+ * 
+ * Wind interaction with spin:
+ * - Draw (negative sidespin) curves ball LEFT
+ * - Fade (positive sidespin) curves ball RIGHT
+ * - Wind FROM right (90°) pushes ball LEFT
+ * - Wind FROM left (270°) pushes ball RIGHT
+ * 
+ * So: Draw + wind from right = both push left = MORE curve
+ *     Draw + wind from left = cancel out = LESS curve (ball flies straighter)
  */
 export function simulateTrajectory(launchConditions, windSpeed = 0, windDirection = 0) {
     const { ballSpeed, launchAngle, launchDirection, spinRate, spinAxis } = launchConditions;
@@ -194,12 +203,17 @@ export function simulateTrajectory(launchConditions, windSpeed = 0, windDirectio
     let backspin = initialBackspin;
     let sidespin = initialSidespin;
     
-    // Wind components - windDirection is where wind is coming FROM
-    // 0° = headwind (from front), 90° = from right, 180° = tailwind (from behind), 270° = from left
-    // We need to reverse the direction since wind FROM a direction pushes the ball the opposite way
+    // Wind components - windDirection is where wind is coming FROM relative to shot direction
+    // 0° = headwind (from front), 90° = from right, 180° = tailwind, 270° = from left
+    // Wind pushes ball in OPPOSITE direction it comes from
     const windRad = (windDirection + 180) * Math.PI / 180;
-    const windX = windSpeed * MPH_TO_MS * Math.sin(windRad);
-    const windZ = windSpeed * MPH_TO_MS * Math.cos(windRad);
+    const windX = windSpeed * MPH_TO_MS * Math.sin(windRad);  // Positive = pushes right
+    const windZ = windSpeed * MPH_TO_MS * Math.cos(windRad);  // Positive = pushes forward
+    
+    // Calculate crosswind component for spin interaction
+    // Crosswind from right (90°) gives negative crosswind (pushes left)
+    // Crosswind from left (270°) gives positive crosswind (pushes right)
+    const crosswindComponent = -windSpeed * Math.sin(windDirection * Math.PI / 180); // mph, + = from left
     
     // Simulation parameters
     const dt = 0.001; // 1ms time step for accuracy
@@ -258,13 +272,13 @@ export function simulateTrajectory(launchConditions, windSpeed = 0, windDirectio
         const Cd = calcDragCoefficient(Re);
         const Cl = calcLiftCoefficient(spinFactor);
         
-        // Drag force (opposes velocity)
+        // Drag force (opposes relative velocity - this naturally includes wind effect)
         const dragMag = 0.5 * AIR_DENSITY * vrel * vrel * BALL_AREA * Cd;
         const dragX = -dragMag * (vrx / vrel) / BALL_MASS;
         const dragY = -dragMag * (vry / vrel) / BALL_MASS;
         const dragZ = -dragMag * (vrz / vrel) / BALL_MASS;
         
-        // Lift force from backspin (Magnus effect - perpendicular to velocity in vertical plane)
+        // Lift force from backspin (Magnus effect)
         const liftMag = 0.5 * AIR_DENSITY * vrel * vrel * BALL_AREA * Cl;
         const horizontalSpeed = Math.sqrt(vrx*vrx + vrz*vrz);
         
@@ -273,10 +287,44 @@ export function simulateTrajectory(launchConditions, windSpeed = 0, windDirectio
         let liftZ = 0;
         
         if (horizontalSpeed > 0.1) {
+            // Backspin lift (vertical)
             const backspinLift = liftMag * (backspin / Math.max(currentSpinRPM, 1));
             liftY = backspinLift / BALL_MASS;
             
-            const sidespinForce = liftMag * (sidespin / Math.max(currentSpinRPM, 1)) * 0.7;
+            // Sidespin curve force
+            // Negative sidespin (draw) = curves LEFT (negative X)
+            // Positive sidespin (fade) = curves RIGHT (positive X)
+            const baseSidespinForce = liftMag * (sidespin / Math.max(currentSpinRPM, 1)) * 0.7;
+            
+            // Wind-spin interaction:
+            // When crosswind opposes spin direction, they partially cancel
+            // When crosswind aids spin direction, effect is amplified
+            // sidespin: negative = draw (curves left), positive = fade (curves right)
+            // crosswindComponent: positive = from left (pushes right), negative = from right (pushes left)
+            
+            // Calculate how much wind and spin are aligned
+            // Same sign = opposing (draw left vs wind from left pushing right)
+            // Opposite sign = aiding (draw left + wind from right pushing left)
+            let windSpinInteraction = 1.0;
+            if (Math.abs(crosswindComponent) > 1 && Math.abs(sidespin) > 100) {
+                // Normalize both to -1 to 1 range for comparison
+                const spinDir = sidespin > 0 ? 1 : -1;  // +1 = fade/right, -1 = draw/left
+                const windDir = crosswindComponent > 0 ? 1 : -1;  // +1 = from left (pushes right), -1 = from right (pushes left)
+                
+                // If spin and wind push same direction (opposite signs), amplify
+                // If spin and wind oppose (same signs), reduce
+                const windStrength = Math.min(Math.abs(crosswindComponent) / 15, 1); // Normalize to 0-1 for ~15mph max effect
+                
+                if (spinDir === windDir) {
+                    // Opposing: draw (left) vs wind from left (pushes right) - cancel out
+                    windSpinInteraction = 1.0 - windStrength * 0.6;
+                } else {
+                    // Aiding: draw (left) + wind from right (pushes left) - amplify
+                    windSpinInteraction = 1.0 + windStrength * 0.4;
+                }
+            }
+            
+            const sidespinForce = baseSidespinForce * windSpinInteraction;
             liftX = sidespinForce * (vrz / horizontalSpeed) / BALL_MASS;
             liftZ = -sidespinForce * (vrx / horizontalSpeed) / BALL_MASS;
         }
@@ -427,12 +475,13 @@ export function calculateLandingBehavior(trajectoryResult, terrain = 'fairway', 
 /**
  * Generate variability based on golfer skill and conditions
  * This creates the "human element" in the simulation
+ * Tightened for scratch golfer - realistic PGA Tour dispersion
  * @param {object} golferStats - Golfer statistics
  * @param {string} clubName - Club being used
  * @param {object} conditions - Additional conditions including lie
  */
 export function generateShotVariability(golferStats, clubName, conditions = {}) {
-    const { missRate = 0.12, distStd = 3, dirStd = 3 } = golferStats;
+    const { missRate = 0.10, distStd = 3, dirStd = 3 } = golferStats;
     const { lie = null } = conditions;
     
     // Get additional miss chance from lie
@@ -448,7 +497,7 @@ export function generateShotVariability(golferStats, clubName, conditions = {}) 
     // Roll for shot quality (lie affects miss chance)
     const adjustedMissRate = Math.min(0.5, missRate + lieMissIncrease);
     const qualityRoll = Math.random();
-    const isDisaster = qualityRoll < 0.01 + (lieMissIncrease * 0.5);
+    const isDisaster = qualityRoll < 0.008 + (lieMissIncrease * 0.3); // Reduced from 1% to 0.8%
     const isMiss = qualityRoll < adjustedMissRate;
     
     let variability = {
@@ -462,50 +511,50 @@ export function generateShotVariability(golferStats, clubName, conditions = {}) 
     };
     
     if (isDisaster) {
-        // Disaster shot - big miss
+        // Disaster shot - big miss (but toned down)
         variability.isDisaster = true;
         variability.isMiss = true;
         const disasterType = Math.random();
         
         if (disasterType < 0.3) {
             // Topped - low launch, low spin, short
-            variability.speedVariance = -0.3 - Math.random() * 0.2;
-            variability.launchAngleVariance = -8 - Math.random() * 5;
-            variability.spinVariance = -0.5;
+            variability.speedVariance = -0.20 - Math.random() * 0.15;
+            variability.launchAngleVariance = -6 - Math.random() * 4;
+            variability.spinVariance = -0.4;
         } else if (disasterType < 0.5) {
             // Fat/chunk - very short
-            variability.speedVariance = -0.4 - Math.random() * 0.3;
-            variability.launchAngleVariance = 5 + Math.random() * 5;
-            variability.spinVariance = 0.3;
+            variability.speedVariance = -0.25 - Math.random() * 0.20;
+            variability.launchAngleVariance = 3 + Math.random() * 4;
+            variability.spinVariance = 0.2;
         } else if (disasterType < 0.75) {
             // Big slice
-            variability.spinAxisOffset = 25 + Math.random() * 15;
-            variability.launchDirection = 5 + Math.random() * 5;
-            variability.speedVariance = -0.1;
+            variability.spinAxisOffset = 18 + Math.random() * 10;
+            variability.launchDirection = 3 + Math.random() * 3;
+            variability.speedVariance = -0.08;
         } else {
             // Big hook
-            variability.spinAxisOffset = -25 - Math.random() * 15;
-            variability.launchDirection = -5 - Math.random() * 5;
-            variability.speedVariance = -0.05;
+            variability.spinAxisOffset = -18 - Math.random() * 10;
+            variability.launchDirection = -3 - Math.random() * 3;
+            variability.speedVariance = -0.04;
         }
     } else if (isMiss) {
         // Regular miss - moderate deviation, mostly short
         variability.isMiss = true;
         // Speed variance skewed negative (mishits lose distance)
-        variability.speedVariance = -Math.abs(gaussianRandom() * 0.04) - 0.02;
-        variability.launchAngleVariance = gaussianRandom() * 2;
-        variability.spinVariance = gaussianRandom() * 0.10;
-        variability.spinAxisOffset = gaussianRandom() * 6;
-        variability.launchDirection = gaussianRandom() * 3;
+        variability.speedVariance = -Math.abs(gaussianRandom() * 0.025) - 0.015;
+        variability.launchAngleVariance = gaussianRandom() * 1.2;
+        variability.spinVariance = gaussianRandom() * 0.06;
+        variability.spinAxisOffset = gaussianRandom() * 4;
+        variability.launchDirection = gaussianRandom() * 1.8;
     } else {
-        // Good shot - tight variance, slightly skewed short
-        // Max ~2% gain, typical 0-3% loss
-        const speedRoll = gaussianRandom() * 0.015;
-        variability.speedVariance = Math.min(speedRoll, 0.02) - 0.005;
-        variability.launchAngleVariance = gaussianRandom() * 0.8;
-        variability.spinVariance = gaussianRandom() * 0.05;
-        variability.spinAxisOffset = gaussianRandom() * 2;
-        variability.launchDirection = gaussianRandom() * 1;
+        // Good shot - tight variance for scratch golfer
+        // PGA Tour level: ~1-2% speed variance, minimal direction error
+        const speedRoll = gaussianRandom() * 0.008;
+        variability.speedVariance = Math.min(speedRoll, 0.012) - 0.003;
+        variability.launchAngleVariance = gaussianRandom() * 0.4;
+        variability.spinVariance = gaussianRandom() * 0.025;
+        variability.spinAxisOffset = gaussianRandom() * 1;
+        variability.launchDirection = gaussianRandom() * 0.5;
     }
     
     return variability;

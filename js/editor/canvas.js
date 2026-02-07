@@ -14,6 +14,7 @@ export class EditorCanvas {
         // Selection
         this.selectedZone = null;
         this.selectedTree = null;
+        this.selectedSprinklerHead = null;
         this.selectedNode = null;
         this.hoveredNode = null;
         this.selectedCentrelinePoint = null;
@@ -31,6 +32,7 @@ export class EditorCanvas {
             terrain: true,
             trees: true,
             markers: true,
+            sprinklers: true,
             centreline: true,
             nodes: true
         };
@@ -117,6 +119,7 @@ export class EditorCanvas {
     clearSelection() {
         this.selectedZone = null;
         this.selectedTree = null;
+        this.selectedSprinklerHead = null;
         this.selectedNode = null;
         this.selectedCentrelinePoint = null;
     }
@@ -134,6 +137,10 @@ export class EditorCanvas {
         if (this.selectedTree !== null) {
             this.courseData.removeTree(this.selectedTree);
             this.selectedTree = null;
+        }
+        if (this.selectedSprinklerHead !== null) {
+            this.courseData.removeSprinklerHead(this.selectedSprinklerHead);
+            this.selectedSprinklerHead = null;
         }
         this.render();
     }
@@ -181,6 +188,11 @@ export class EditorCanvas {
         // Draw trees
         if (this.layers.trees) {
             this.drawTrees();
+        }
+        
+        // Draw sprinkler heads
+        if (this.layers.sprinklers) {
+            this.drawSprinklerHeads();
         }
         
         // Draw markers (tee, hole)
@@ -947,5 +959,55 @@ export class EditorCanvas {
             }
         }
         return inside;
+    }
+    
+    drawSprinklerHeads() {
+        const ctx = this.ctx;
+        
+        // Draw all global sprinkler heads
+        this.courseData.sprinklerHeads.forEach((sprinkler, index) => {
+            const screen = this.worldToScreen(sprinkler.x, sprinkler.y);
+            const isSelected = this.selectedSprinklerHead === index;
+            
+            // Draw sprinkler head as a black filled circle with white outline
+            const radius = isSelected ? 8 : 6;
+            
+            // Outer ring (selection indicator)
+            if (isSelected) {
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(screen.x, screen.y, radius + 2, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            
+            // Main circle - black fill
+            ctx.fillStyle = '#111';
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Inner dot for visibility
+            ctx.fillStyle = '#666';
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+    
+    hitTestSprinklerHead(worldX, worldY) {
+        // Test global sprinkler heads
+        for (let i = this.courseData.sprinklerHeads.length - 1; i >= 0; i--) {
+            const sprinkler = this.courseData.sprinklerHeads[i];
+            const dx = worldX - sprinkler.x;
+            const dy = worldY - sprinkler.y;
+            if (dx * dx + dy * dy < 4) { // 2 world unit radius
+                return i;
+            }
+        }
+        return -1;
     }
 }

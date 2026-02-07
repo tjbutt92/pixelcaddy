@@ -68,6 +68,7 @@ export class World {
         this.buildTerrain();   // Terrain texture includes tree shadows
         this.buildWaterPlanes(); // Add flat water surfaces
         this.buildTrees();
+        this.buildSprinklerHeads(); // Add sprinkler head markers
     }
 
     // Set the active hole (tee and hole positions)
@@ -102,6 +103,18 @@ export class World {
             this.scene.remove(tree.group);
         });
         this.trees = [];
+        
+        // Clear sprinkler heads
+        if (this.sprinklerHeadMarkers) {
+            this.sprinklerHeadMarkers.forEach(marker => {
+                this.scene.remove(marker);
+                marker.traverse(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
+            });
+        }
+        this.sprinklerHeadMarkers = [];
         
         // Clear sky elements
         if (this.sunMesh) {
@@ -979,6 +992,75 @@ export class World {
             }
         });
     }
+    
+    // Build sprinkler head markers from course data
+    // These are black circles on the ground that caddies use for yardage reference
+    buildSprinklerHeads() {
+        if (!this.course || !this.course.sprinklerHeads) return;
+        
+        this.sprinklerHeadMarkers = [];
+        
+        this.course.sprinklerHeads.forEach(sprinklerData => {
+            const marker = this.createSprinklerHeadMarker(sprinklerData.x, sprinklerData.y);
+            if (marker) {
+                this.sprinklerHeadMarkers.push(marker);
+            }
+        });
+    }
+    
+    // Create a sprinkler head marker at position
+    // Rendered as a black circle on the ground, visible above terrain
+    createSprinklerHeadMarker(worldX, worldY) {
+        const group = new THREE.Group();
+        
+        const elevation = getElevationAt(this.course, worldX, worldY);
+        const x = (worldX - 50) * WORLD_SCALE;
+        const z = (worldY - 50) * WORLD_SCALE;
+        const y = elevation * 0.33 + 0.05; // Slightly above terrain to be visible
+        
+        // Create a flat black disc for the sprinkler head
+        // Make it fairly large (about 1 yard diameter) so caddies can see it
+        const radius = 0.5; // 0.5 yards radius = 1 yard diameter
+        
+        // Main disc - black with slight gray center
+        const discGeom = new THREE.CircleGeometry(radius, 24);
+        const discMat = new THREE.MeshBasicMaterial({ 
+            color: 0x111111,
+            side: THREE.DoubleSide,
+            depthWrite: true
+        });
+        const disc = new THREE.Mesh(discGeom, discMat);
+        disc.rotation.x = -Math.PI / 2; // Lay flat on ground
+        group.add(disc);
+        
+        // Inner ring for visibility
+        const innerRingGeom = new THREE.RingGeometry(radius * 0.3, radius * 0.5, 24);
+        const innerRingMat = new THREE.MeshBasicMaterial({ 
+            color: 0x333333,
+            side: THREE.DoubleSide
+        });
+        const innerRing = new THREE.Mesh(innerRingGeom, innerRingMat);
+        innerRing.rotation.x = -Math.PI / 2;
+        innerRing.position.y = 0.01; // Slightly above main disc
+        group.add(innerRing);
+        
+        // Center dot
+        const centerGeom = new THREE.CircleGeometry(radius * 0.15, 16);
+        const centerMat = new THREE.MeshBasicMaterial({ 
+            color: 0x444444,
+            side: THREE.DoubleSide
+        });
+        const center = new THREE.Mesh(centerGeom, centerMat);
+        center.rotation.x = -Math.PI / 2;
+        center.position.y = 0.02; // Above inner ring
+        group.add(center);
+        
+        group.position.set(x, y, z);
+        group.renderOrder = 1; // Render above terrain
+        this.scene.add(group);
+        
+        return group;
+    }
 
     // Update hole and tee markers for current hole
     updateHoleMarkers() {
@@ -1095,17 +1177,22 @@ export class World {
         const z = (worldY - 50) * WORLD_SCALE;
         const y = elevation * 0.33;
 
+        // Real sizes: pole ~7ft tall (2.3 yards), 0.5" diameter (0.014 yards)
+        // Flag ~14"x20" (0.4 x 0.55 yards)
+        const poleHeight = 2.3;
+        const poleRadius = 0.02;
+        
         // Pole
-        const poleGeom = new THREE.CylinderGeometry(0.1, 0.1, 8, 8);
+        const poleGeom = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8);
         const poleMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
         const pole = new THREE.Mesh(poleGeom, poleMat);
-        pole.position.y = 4;
+        pole.position.y = poleHeight / 2;
         group.add(pole);
 
         // Flag cloth with segments for animation
-        const flagWidth = 2;
-        const flagHeight = 1.5;
-        const flagGeom = new THREE.PlaneGeometry(flagWidth, flagHeight, 12, 6);
+        const flagWidth = 0.55;
+        const flagHeight = 0.4;
+        const flagGeom = new THREE.PlaneGeometry(flagWidth, flagHeight, 8, 4);
         
         // Shift geometry so left edge is at origin (pivot at pole)
         const posAttr = flagGeom.attributes.position;
@@ -1119,7 +1206,7 @@ export class World {
             side: THREE.DoubleSide 
         });
         const flag = new THREE.Mesh(flagGeom, flagMat);
-        flag.position.set(0.1, 7, 0);
+        flag.position.set(poleRadius, poleHeight - flagHeight / 2 - 0.05, 0);
         group.add(flag);
         
         // Store flag mesh and original positions for animation
@@ -1127,11 +1214,13 @@ export class World {
         this.flagGeometry = flagGeom;
         this.flagOriginalPositions = flagGeom.attributes.position.array.slice();
 
-        // Hole cup
-        const cupGeom = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
-        const cupMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+        // Hole cup - 4.25" diameter (0.12 yards), as a dark ring on surface
+        const cupRadius = 0.06;
+        const cupGeom = new THREE.RingGeometry(cupRadius * 0.7, cupRadius, 16);
+        const cupMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
         const cup = new THREE.Mesh(cupGeom, cupMat);
-        cup.position.y = -0.1;
+        cup.rotation.x = -Math.PI / 2; // Lay flat on ground
+        cup.position.y = 0.01; // Just above terrain
         group.add(cup);
 
         group.position.set(x, y, z);
@@ -1159,11 +1248,11 @@ export class World {
         const flagAngleRad = (flagAngleDeg * Math.PI) / 180;
         const windIntensity = Math.min(windSpeed / 20, 1);
         
-        // Wave parameters
-        const waveAmplitude = 0.02 + windIntensity * 0.08;
-        const waveFrequency = 4 + windIntensity * 4;
-        const waveSpeed = 3 + windIntensity * 3;
-        const flagWidth = 2;
+        // Wave parameters (scaled for smaller flag)
+        const waveAmplitude = 0.005 + windIntensity * 0.02;
+        const waveFrequency = 6 + windIntensity * 4;
+        const waveSpeed = 4 + windIntensity * 3;
+        const flagWidth = 0.55;
         
         const horizontalFactor = Math.sin(flagAngleRad);
         const verticalFactor = Math.cos(flagAngleRad);
@@ -1190,8 +1279,12 @@ export class World {
         this.flagGeometry.attributes.position.needsUpdate = true;
         this.flagGeometry.computeVertexNormals();
         
-        // Rotate flag to point in wind direction
-        const windDirRad = ((windDirDeg + 180) * Math.PI) / 180;
+        // Rotate flag to point in wind direction (where wind blows TO)
+        // wind.direction is where wind comes FROM, so flag points opposite
+        // Three.js rotation.y: 0 = +Z (south), π/2 = +X (east), π = -Z (north)
+        // Game angles: 0° = north, 90° = east, 180° = south
+        // Wind from north (0°) blows south → flag points +Z → rotation.y = 0
+        const windDirRad = -windDirDeg * Math.PI / 180;
         this.flagMesh.rotation.y = windDirRad;
     }
 
@@ -1270,41 +1363,90 @@ export class World {
     // Animate trees, flag, and clouds (sway in wind)
     update(time) {
         const windSpeed = this.wind?.speed || 0;
-        const windDirRad = ((this.wind?.direction || 0) + 180) * Math.PI / 180;
-        const windIntensity = Math.min(windSpeed / 20, 1);
+        // Wind direction where wind blows TO (opposite of where it comes FROM)
+        // wind.direction is where wind comes FROM, so negate to get blow direction
+        // Three.js: 0 rad = +Z (south), π/2 = +X (east)
+        const windDirRad = -((this.wind?.direction || 0) * Math.PI / 180);
         
         // Tree sway based on wind
         this.trees.forEach(tree => {
-            const sway = tree.swayAmount * windIntensity;
             const phase = tree.seed * 0.1;
-            const swayX = Math.sin(time * tree.swaySpeed + phase) * sway;
-            const swayZ = Math.sin(time * tree.swaySpeed * 0.7 + phase + 1) * sway * 0.6;
             
-            // Wind direction bias
-            const windLeanX = Math.sin(windDirRad) * sway * 0.5;
-            const windLeanZ = Math.cos(windDirRad) * sway * 0.5;
+            // Base sway amount (gentle movement even in calm conditions)
+            const baseSway = tree.swayAmount * 0.15;
             
-            tree.group.rotation.x = swayZ + windLeanZ;
-            tree.group.rotation.z = -(swayX + windLeanX);
+            // Wind-induced lean: starts at 8mph, maxes out around 15mph
+            // Below 8mph: no wind lean, just gentle sway
+            // 8-15mph: increasing lean
+            // Above 15mph: trees are well bent over
+            let windLean = 0;
+            if (windSpeed >= 8) {
+                // Ramp from 0 at 8mph to moderate lean at 15mph+
+                const leanFactor = Math.min((windSpeed - 8) / 7, 1); // 0 to 1 over 8-15mph range
+                // Gentler lean - about 5 degrees at 15mph
+                const maxLeanAngle = 0.04 + leanFactor * 0.04;
+                windLean = maxLeanAngle * leanFactor;
+                // Above 15mph, gradually increase bend
+                if (windSpeed > 15) {
+                    windLean += (windSpeed - 15) / 30 * 0.08;
+                }
+            }
+            
+            // Sway oscillates from vertical (0) toward wind direction (positive values only)
+            // Use (1 + sin) / 2 to get 0-1 range instead of -1 to 1
+            const swayOscillation = (1 + Math.sin(time * tree.swaySpeed + phase)) / 2;
+            const swayOscillationZ = (1 + Math.sin(time * tree.swaySpeed * 0.7 + phase + 1)) / 2;
+            
+            // Sway amount increases with wind speed
+            // Calm: gentle sway, Strong wind: bigger sway motion
+            const windSwayMultiplier = 1 + Math.min(windSpeed / 10, 2); // 1x at 0mph, up to 3x at 20mph+
+            const swayAmount = tree.swayAmount * 0.25 * windSwayMultiplier;
+            
+            // Total lean = constant wind lean + oscillating sway (both in wind direction)
+            const totalLeanX = windLean + swayOscillation * swayAmount;
+            const totalLeanZ = windLean + swayOscillationZ * swayAmount * 0.6;
+            
+            // Apply lean in wind direction
+            // cos(windDirRad) gives Z component, sin(windDirRad) gives X component
+            const leanX = Math.sin(windDirRad) * totalLeanX;
+            const leanZ = Math.cos(windDirRad) * totalLeanZ;
+            
+            tree.group.rotation.x = leanZ;   // Z-axis lean from rotation around X
+            tree.group.rotation.z = -leanX;  // X-axis lean from rotation around Z (negated)
         });
         
         // Flag animation
         this.updateFlagAnimation(time);
         
-        // Cloud animation - slow drift across the sky
+        // Cloud animation - drift in wind direction at wind-relative speed
         this.clouds.forEach((cloud, i) => {
-            // Drift clouds slowly
-            cloud.group.position.x += Math.cos(time * 0.1 + i) * cloud.speed * 0.02;
-            cloud.group.position.z += cloud.drift;
+            // Base cloud speed scaled by wind speed
+            // At 0 wind: very slow drift (0.1), at 15mph: moderate drift, at 25mph: fast drift
+            const baseCloudSpeed = 0.1 + (windSpeed / 25) * 0.4; // 0.1 to 0.5 based on wind
+            const cloudMoveSpeed = baseCloudSpeed * cloud.speed;
+            
+            // Move clouds in wind direction (wind blows FROM direction, so clouds move opposite)
+            // windDirRad already accounts for this (negated in the calculation above)
+            cloud.group.position.x += Math.sin(windDirRad) * cloudMoveSpeed;
+            cloud.group.position.z += Math.cos(windDirRad) * cloudMoveSpeed;
+            
+            // Add subtle perpendicular wobble for natural movement
+            const wobbleAmount = 0.02 * cloud.speed;
+            cloud.group.position.x += Math.cos(time * 0.1 + i) * wobbleAmount;
+            cloud.group.position.z += Math.sin(time * 0.15 + i * 0.7) * wobbleAmount;
             
             // Wrap clouds around when they drift too far
             const maxDist = SKY_CONFIG.cloudSpread * 1.5;
             const dist = Math.sqrt(cloud.group.position.x ** 2 + cloud.group.position.z ** 2);
             if (dist > maxDist) {
-                // Reset to opposite side
-                const angle = Math.atan2(cloud.group.position.z, cloud.group.position.x);
-                cloud.group.position.x = -Math.cos(angle) * SKY_CONFIG.cloudSpread * 0.8;
-                cloud.group.position.z = -Math.sin(angle) * SKY_CONFIG.cloudSpread * 0.8;
+                // Reset to opposite side (upwind)
+                cloud.group.position.x = -Math.sin(windDirRad) * SKY_CONFIG.cloudSpread * 0.8;
+                cloud.group.position.z = -Math.cos(windDirRad) * SKY_CONFIG.cloudSpread * 0.8;
+                // Add some randomness to the reset position
+                const perpAngle = windDirRad + Math.PI / 2;
+                const perpOffset = (Math.random() - 0.5) * SKY_CONFIG.cloudSpread;
+                cloud.group.position.x += Math.sin(perpAngle) * perpOffset;
+                cloud.group.position.z += Math.cos(perpAngle) * perpOffset;
             }
             
             // Subtle vertical bob
@@ -1346,6 +1488,14 @@ export class World {
             hiddenObjects.push(this.sunGlow);
         }
         
+        // Hide trees (we'll draw SVG markers instead)
+        this.trees.forEach(tree => {
+            if (tree.group && tree.group.visible) {
+                tree.group.visible = false;
+                hiddenObjects.push(tree.group);
+            }
+        });
+        
         // Calculate bounds for the hole
         const bounds = this.calculateHoleBounds(hole);
         
@@ -1356,13 +1506,14 @@ export class World {
         const dy = holePos.y - teePos.y;
         const rotationAngle = Math.atan2(dx, -dy); // Angle to rotate so tee->hole points up
         
-        // Create an offscreen renderer
+        // Create an offscreen renderer with shadows disabled
         const offscreenRenderer = new THREE.WebGLRenderer({ 
             antialias: true, 
             preserveDrawingBuffer: true,
             alpha: true
         });
         offscreenRenderer.setSize(width, height);
+        offscreenRenderer.shadowMap.enabled = false; // Disable shadows for yardage book
         
         // Create orthographic camera for top-down view
         const aspect = width / height;
@@ -1460,6 +1611,14 @@ export class World {
             hiddenObjects.push(this.sunGlow);
         }
         
+        // Hide trees (we'll draw SVG markers instead)
+        this.trees.forEach(tree => {
+            if (tree.group && tree.group.visible) {
+                tree.group.visible = false;
+                hiddenObjects.push(tree.group);
+            }
+        });
+        
         // Calculate rotation angle to orient tee at bottom, hole at top
         const teePos = hole.tee;
         const holePos = hole.hole;
@@ -1467,13 +1626,14 @@ export class World {
         const dy = holePos.y - teePos.y;
         const rotationAngle = Math.atan2(dx, -dy);
         
-        // Create an offscreen renderer
+        // Create an offscreen renderer with shadows disabled
         const offscreenRenderer = new THREE.WebGLRenderer({ 
             antialias: true, 
             preserveDrawingBuffer: true,
             alpha: true
         });
         offscreenRenderer.setSize(width, height);
+        offscreenRenderer.shadowMap.enabled = false; // Disable shadows for yardage book
         
         // Create orthographic camera for top-down view
         const aspect = width / height;

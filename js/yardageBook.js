@@ -1,20 +1,63 @@
 // Yardage Book modal - captures the actual game world rendering
 // No separate re-rendering - just a screenshot of the 3D world from top-down view
-import { getSlopeAt, findGreenFront, getTerrainAt, TerrainType, getElevationAt } from './terrain.js';
+import { getSlopeAt, findGreenFront, getTerrainAt, TerrainType, getElevationAt, setCourse } from './terrain.js';
 import { golfer } from './golfer.js';
 import { shotClubs } from './clubs.js';
+import { treeProperties } from './trees.js';
 import { 
     WORLD_SCALE, 
     clamp, 
-    yardsToWorld, 
+    yardsToWorld,
+    worldToYards,
     findCircleCentrelineIntersection,
     isPointInPolygon,
-    distanceToSegment
+    distanceToSegment,
+    lineSegmentIntersect
 } from './utils.js';
 
-let currentPage = 'hole'; // 'hole', 'golfer', 'green', or 'clubs'
+let currentPage = 'hole'; // 'hole', 'golfer', 'green', 'clubs', or 'course'
 let worldInstance = null; // Reference to the game world for capturing
 let objectsToHideList = []; // Objects to hide during capture (aim line, ball, etc.)
+let ballInstance = null; // Reference to the ball for position display
+
+// Wind state - persists across yardage book opens
+let windDirection = Math.floor(Math.random() * 360); // 0-359 degrees (0 = North)
+let windSpeed = 5 + Math.floor(Math.random() * 10); // 5-15 mph
+let lastWindChange = Date.now();
+const WIND_CHANGE_INTERVAL = 60000; // Check for wind change every 60 seconds
+const WIND_CHANGE_CHANCE = 0.3; // 30% chance to change when checked
+
+// Get current wind (may randomly change)
+export function getWind() {
+    const now = Date.now();
+    if (now - lastWindChange > WIND_CHANGE_INTERVAL) {
+        lastWindChange = now;
+        if (Math.random() < WIND_CHANGE_CHANCE) {
+            // Randomly change direction, speed, or both
+            const changeType = Math.random();
+            if (changeType < 0.4) {
+                // Change direction only (small adjustment)
+                windDirection = (windDirection + Math.floor(Math.random() * 60) - 30 + 360) % 360;
+            } else if (changeType < 0.7) {
+                // Change speed only
+                windSpeed = Math.max(0, Math.min(25, windSpeed + Math.floor(Math.random() * 8) - 4));
+            } else {
+                // Change both
+                windDirection = (windDirection + Math.floor(Math.random() * 90) - 45 + 360) % 360;
+                windSpeed = Math.max(0, Math.min(25, windSpeed + Math.floor(Math.random() * 10) - 5));
+            }
+        }
+    }
+    return { direction: windDirection, speed: windSpeed };
+}
+
+// Convert degrees to compass abbreviation
+function degreesToCompass(degrees) {
+    const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 
+                        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const index = Math.round(degrees / 22.5) % 16;
+    return directions[index];
+}
 
 // Set the world instance (called from ui.js)
 export function setYardageBookWorld(world) {
@@ -26,32 +69,29 @@ export function setObjectsToHide(objects) {
     objectsToHideList = objects || [];
 }
 
-// Convert world coordinates to screen position on the captured image
-// The camera is positioned above center3D, looking down, rotated by rotationAngle
+// Set the ball instance (called from ui.js)
+export function setYardageBookBall(ball) {
+    ballInstance = ball;
+}
+
+// Convert world coordinates to screen position on the 2D canvas
+// Applies rotation so tee is at bottom, hole at top
 function worldToCapture(worldX, worldY, captureData) {
     const { centerWorld, rotationAngle, viewWidth, viewHeight, width, height } = captureData;
     
-    // Convert world coords to 3D coords (same as world.worldTo3D)
-    const x3D = (worldX - 50) * WORLD_SCALE;
-    const z3D = (worldY - 50) * WORLD_SCALE;
-    
-    // Center in 3D
-    const cx3D = (centerWorld.x - 50) * WORLD_SCALE;
-    const cz3D = (centerWorld.y - 50) * WORLD_SCALE;
-    
     // Offset from center
-    const dx = x3D - cx3D;
-    const dz = z3D - cz3D;
+    const ox = worldX - centerWorld.x;
+    const oy = worldY - centerWorld.y;
     
-    // Apply rotation (camera rotates around Z axis when looking down)
+    // Apply rotation
     const cos = Math.cos(rotationAngle);
     const sin = Math.sin(rotationAngle);
-    const rx = dx * cos + dz * sin;
-    const rz = -dx * sin + dz * cos;
+    const rx = ox * cos + oy * sin;
+    const ry = -ox * sin + oy * cos;
     
     // Convert to pixel coordinates
     const pxX = (rx / viewWidth + 0.5) * width;
-    const pxY = (rz / viewHeight + 0.5) * height;
+    const pxY = (ry / viewHeight + 0.5) * height;
     
     return { x: pxX, y: pxY };
 }
@@ -90,6 +130,8 @@ function renderPage(modal, hole) {
         renderGreenPage(modal, hole);
     } else if (currentPage === 'golfer') {
         renderGolferPage(modal, hole);
+    } else if (currentPage === 'course') {
+        renderCoursePage(modal, hole);
     } else {
         renderClubsPage(modal, hole);
     }
@@ -103,6 +145,7 @@ function renderHolePage(modal, hole) {
                 <button class="yardage-tab-btn" id="green-tab">Green</button>
                 <button class="yardage-tab-btn" id="clubs-tab">Clubs</button>
                 <button class="yardage-tab-btn" id="golfer-tab">Golfer</button>
+                <button class="yardage-tab-btn" id="course-tab">Course</button>
                 <button class="yardage-close-btn" id="close-btn">✕</button>
             </div>
         </div>
@@ -128,6 +171,10 @@ function renderHolePage(modal, hole) {
         currentPage = 'green';
         renderPage(modal, hole);
     });
+    modal.querySelector('#course-tab').addEventListener('click', () => {
+        currentPage = 'course';
+        renderPage(modal, hole);
+    });
     
     // Capture the world view after a brief delay to let modal render
     requestAnimationFrame(() => {
@@ -144,35 +191,412 @@ function renderCapturedHoleMap(modal, hole) {
     const width = Math.floor(containerRect.width) || 400;
     const height = Math.floor(containerRect.height) || 500;
     
-    // Capture the world view (hide aim line, ball, tracer)
-    let capturedCanvas = null;
-    if (worldInstance) {
-        capturedCanvas = worldInstance.captureYardageBookView(hole, width, height, objectsToHideList);
-    }
-    
     // Clear loading message
     mapContainer.innerHTML = '';
     
-    if (capturedCanvas) {
-        // Add the captured image as background
-        capturedCanvas.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%;';
-        mapContainer.appendChild(capturedCanvas);
-        
-        // Store capture data for overlay positioning
-        const captureData = {
-            centerWorld: capturedCanvas.centerWorld,
-            rotationAngle: capturedCanvas.rotationAngle,
-            viewWidth: capturedCanvas.viewWidth,
-            viewHeight: capturedCanvas.viewHeight,
-            width: width,
-            height: height
-        };
-        
-        // Add overlays (yardage circles, markers, flag)
-        renderYardageOverlays(mapContainer, hole, captureData);
-    } else {
-        mapContainer.innerHTML = '<div class="yardage-fallback">Unable to capture hole view</div>';
+    // Get terrain data
+    let terrain = null;
+    let trees = null;
+    if (worldInstance && worldInstance.course) {
+        terrain = worldInstance.course.terrain;
+        trees = worldInstance.course.trees;
     }
+    
+    // Calculate bounds for the hole
+    const bounds = calculateHoleBounds2D(hole, terrain, trees);
+    
+    // Calculate rotation angle to orient tee at bottom, hole at top
+    const teePos = hole.tee;
+    const holePos = hole.hole;
+    const dx = holePos.x - teePos.x;
+    const dy = holePos.y - teePos.y;
+    const rotationAngle = Math.atan2(dx, -dy);
+    
+    // Calculate view dimensions
+    const boundsWidth = bounds.maxX - bounds.minX;
+    const boundsHeight = bounds.maxY - bounds.minY;
+    const aspect = width / height;
+    
+    let viewWidth, viewHeight;
+    if (boundsWidth / boundsHeight > aspect) {
+        viewWidth = boundsWidth * 1.1;
+        viewHeight = viewWidth / aspect;
+    } else {
+        viewHeight = boundsHeight * 1.1;
+        viewWidth = viewHeight * aspect;
+    }
+    
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+    
+    // Create canvas for 2D rendering
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%;';
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Fill with light green (rough/grass base)
+    ctx.fillStyle = '#90c090';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Helper to convert world coords to canvas coords (with rotation)
+    function worldToCanvas(worldX, worldY) {
+        // Offset from center
+        const ox = worldX - centerX;
+        const oy = worldY - centerY;
+        
+        // Apply rotation
+        const cos = Math.cos(rotationAngle);
+        const sin = Math.sin(rotationAngle);
+        const rx = ox * cos + oy * sin;
+        const ry = -ox * sin + oy * cos;
+        
+        // Convert to canvas coords
+        const px = (rx / viewWidth + 0.5) * width;
+        const py = (ry / viewHeight + 0.5) * height;
+        
+        return { x: px, y: py };
+    }
+    
+    // Draw terrain features
+    if (terrain) {
+        // Draw fairway (lighter green than rough)
+        ctx.fillStyle = '#b8e8b8';
+        drawTerrainFeatures(ctx, terrain.fairway, worldToCanvas);
+        
+        // Draw tee box (same as fairway)
+        ctx.fillStyle = '#b8e8b8';
+        drawTerrainFeatures(ctx, terrain.teeBox, worldToCanvas);
+        
+        // Draw path (light tan/gray cart path)
+        ctx.strokeStyle = '#c8c0b0';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        drawPathFeatures(ctx, terrain.path, worldToCanvas, viewWidth, width);
+        
+        // Draw water (light blue)
+        ctx.fillStyle = '#a0c8e8';
+        drawTerrainFeatures(ctx, terrain.water, worldToCanvas);
+        
+        // Draw bunkers (light yellow/sand)
+        ctx.fillStyle = '#e8dca0';
+        drawTerrainFeatures(ctx, terrain.bunker, worldToCanvas);
+        
+        // Draw green (slightly different green)
+        ctx.fillStyle = '#98e898';
+        drawTerrainFeatures(ctx, terrain.green, worldToCanvas);
+    }
+    
+    // Draw trees (flattened 2D canopy clusters with black dot for trunk)
+    if (trees) {
+        trees.forEach(tree => {
+            const props = treeProperties[tree.type];
+            if (!props) return;
+            
+            const pos = worldToCanvas(tree.x, tree.y);
+            const canopyRadius = (props.canopyRadius.min + props.canopyRadius.max) / 2;
+            const category = props.category;
+            
+            // Generate seed from tree position for consistent randomness
+            const seed = Math.abs(tree.x * 1000 + tree.y * 7);
+            
+            // Draw flattened canopy clusters
+            ctx.fillStyle = 'rgba(34, 85, 34, 0.5)';
+            drawTree2DCanopy(ctx, pos, canopyRadius, category, seed, viewWidth, width, rotationAngle);
+            
+            // Black dot for trunk
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+    
+    mapContainer.appendChild(canvas);
+    
+    // Store capture data for overlay positioning
+    const captureData = {
+        centerWorld: { x: centerX, y: centerY },
+        rotationAngle: rotationAngle,
+        viewWidth: viewWidth,
+        viewHeight: viewHeight,
+        width: width,
+        height: height
+    };
+    
+    // Add overlays (yardage markers, slope arrows, etc.)
+    renderYardageOverlays(mapContainer, hole, captureData);
+    
+    // Add compass rose (top of map is north in elevation grid, but map is rotated)
+    addCompassRose(mapContainer, rotationAngle);
+}
+
+// Calculate bounds for 2D rendering
+function calculateHoleBounds2D(hole, terrain, trees, padding = 15) {
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    
+    // Include tee and hole positions
+    if (hole.tee) {
+        minX = Math.min(minX, hole.tee.x);
+        maxX = Math.max(maxX, hole.tee.x);
+        minY = Math.min(minY, hole.tee.y);
+        maxY = Math.max(maxY, hole.tee.y);
+    }
+    
+    if (hole.hole) {
+        minX = Math.min(minX, hole.hole.x);
+        maxX = Math.max(maxX, hole.hole.x);
+        minY = Math.min(minY, hole.hole.y);
+        maxY = Math.max(maxY, hole.hole.y);
+    }
+    
+    // Include terrain features
+    if (terrain) {
+        const allFeatures = [
+            ...(terrain.fairway || []),
+            ...(terrain.teeBox || []),
+            ...(terrain.bunker || []),
+            ...(terrain.water || []),
+            ...(terrain.green || []),
+            ...(terrain.outOfBounds || [])
+        ];
+        
+        allFeatures.forEach(feature => {
+            if (feature.shape === 'rect') {
+                minX = Math.min(minX, feature.x);
+                maxX = Math.max(maxX, feature.x + feature.width);
+                minY = Math.min(minY, feature.y);
+                maxY = Math.max(maxY, feature.y + feature.height);
+            } else if (feature.shape === 'ellipse') {
+                minX = Math.min(minX, feature.cx - feature.rx);
+                maxX = Math.max(maxX, feature.cx + feature.rx);
+                minY = Math.min(minY, feature.cy - feature.ry);
+                maxY = Math.max(maxY, feature.cy + feature.ry);
+            } else if (feature.shape === 'polygon' && feature.points) {
+                feature.points.forEach(p => {
+                    minX = Math.min(minX, p[0]);
+                    maxX = Math.max(maxX, p[0]);
+                    minY = Math.min(minY, p[1]);
+                    maxY = Math.max(maxY, p[1]);
+                });
+            }
+        });
+        
+        // Include paths
+        if (terrain.path) {
+            terrain.path.forEach(path => {
+                if (path.points) {
+                    path.points.forEach(p => {
+                        minX = Math.min(minX, p[0]);
+                        maxX = Math.max(maxX, p[0]);
+                        minY = Math.min(minY, p[1]);
+                        maxY = Math.max(maxY, p[1]);
+                    });
+                }
+            });
+        }
+    }
+    
+    // Include trees
+    if (trees) {
+        trees.forEach(tree => {
+            minX = Math.min(minX, tree.x - 5);
+            maxX = Math.max(maxX, tree.x + 5);
+            minY = Math.min(minY, tree.y - 5);
+            maxY = Math.max(maxY, tree.y + 5);
+        });
+    }
+    
+    // Fallback
+    if (minX === Infinity) {
+        minX = 0; maxX = 100; minY = 0; maxY = 100;
+    }
+    
+    // Add padding
+    minX -= padding;
+    maxX += padding;
+    minY -= padding;
+    maxY += padding;
+    
+    return { minX, maxX, minY, maxY };
+}
+
+// Seeded random for consistent tree canopy generation (matches trees.js)
+function seededRandom(seed) {
+    const x = Math.sin(seed * 9999) * 10000;
+    return x - Math.floor(x);
+}
+
+// Draw flattened 2D tree canopy based on tree type
+function drawTree2DCanopy(ctx, pos, canopyRadius, category, seed, viewWidth, canvasWidth, rotationAngle) {
+    const scale = canvasWidth / viewWidth;
+    
+    if (category === 'tall_pine') {
+        // Tall pines - sparse clusters at branch ends, mostly at top
+        const branchCount = 4 + Math.floor(seededRandom(seed + 20) * 3);
+        
+        for (let i = 0; i < branchCount; i++) {
+            const angle = seededRandom(seed + 40 + i) * Math.PI * 2 + rotationAngle;
+            const branchLength = canopyRadius * (0.4 + seededRandom(seed + 50 + i) * 0.5);
+            
+            // 1-2 clusters per branch
+            const clusterCount = 1 + Math.floor(seededRandom(seed + 70 + i) * 2);
+            for (let j = 0; j < clusterCount; j++) {
+                const clusterSize = canopyRadius * (0.25 + seededRandom(seed + 80 + i * 10 + j) * 0.3);
+                const dist = branchLength * (0.6 + seededRandom(seed + 90 + i * 10 + j) * 0.4);
+                
+                const cx = pos.x + Math.cos(angle) * dist * scale;
+                const cy = pos.y + Math.sin(angle) * dist * scale;
+                const r = Math.max(clusterSize * scale, 3);
+                
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Small top cluster
+        const topSize = canopyRadius * 0.4;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, Math.max(topSize * scale, 3), 0, Math.PI * 2);
+        ctx.fill();
+        
+    } else if (category === 'short_pine') {
+        // Short pines - denser, more clusters
+        const branchCount = 5 + Math.floor(seededRandom(seed + 20) * 3);
+        
+        for (let i = 0; i < branchCount; i++) {
+            const angle = seededRandom(seed + 40 + i) * Math.PI * 2 + rotationAngle;
+            const branchLength = canopyRadius * (0.5 + seededRandom(seed + 50 + i) * 0.5);
+            
+            const clusterCount = 2 + Math.floor(seededRandom(seed + 70 + i) * 2);
+            for (let j = 0; j < clusterCount; j++) {
+                const clusterSize = canopyRadius * (0.3 + seededRandom(seed + 80 + i * 10 + j) * 0.3);
+                const dist = branchLength * (0.5 + seededRandom(seed + 90 + i * 10 + j) * 0.5);
+                
+                const cx = pos.x + Math.cos(angle) * dist * scale;
+                const cy = pos.y + Math.sin(angle) * dist * scale;
+                const r = Math.max(clusterSize * scale, 3);
+                
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Center cluster
+        const centerSize = canopyRadius * 0.5;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, Math.max(centerSize * scale, 4), 0, Math.PI * 2);
+        ctx.fill();
+        
+    } else if (category === 'deciduous') {
+        // Deciduous - rounder, fuller canopy with overlapping clusters
+        const branchCount = 5 + Math.floor(seededRandom(seed + 20) * 4);
+        
+        for (let i = 0; i < branchCount; i++) {
+            const angle = seededRandom(seed + 40 + i) * Math.PI * 2 + rotationAngle;
+            const branchLength = canopyRadius * (0.3 + seededRandom(seed + 50 + i) * 0.6);
+            
+            const clusterCount = 2 + Math.floor(seededRandom(seed + 70 + i) * 3);
+            for (let j = 0; j < clusterCount; j++) {
+                const clusterSize = canopyRadius * (0.35 + seededRandom(seed + 80 + i * 10 + j) * 0.4);
+                const dist = branchLength * (0.4 + seededRandom(seed + 90 + i * 10 + j) * 0.6);
+                
+                const cx = pos.x + Math.cos(angle) * dist * scale;
+                const cy = pos.y + Math.sin(angle) * dist * scale;
+                const r = Math.max(clusterSize * scale, 4);
+                
+                ctx.beginPath();
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Large center cluster for deciduous
+        const centerSize = canopyRadius * 0.6;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, Math.max(centerSize * scale, 5), 0, Math.PI * 2);
+        ctx.fill();
+        
+    } else {
+        // Fallback - simple circle
+        const r = Math.max(canopyRadius * scale, 4);
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+// Draw terrain features on canvas
+function drawTerrainFeatures(ctx, features, worldToCanvas) {
+    if (!features) return;
+    
+    features.forEach(feature => {
+        if (feature.shape === 'polygon' && feature.points) {
+            ctx.beginPath();
+            feature.points.forEach((pt, i) => {
+                const pos = worldToCanvas(pt[0], pt[1]);
+                if (i === 0) ctx.moveTo(pos.x, pos.y);
+                else ctx.lineTo(pos.x, pos.y);
+            });
+            ctx.closePath();
+            ctx.fill();
+        } else if (feature.shape === 'rect') {
+            const tl = worldToCanvas(feature.x, feature.y);
+            const tr = worldToCanvas(feature.x + feature.width, feature.y);
+            const br = worldToCanvas(feature.x + feature.width, feature.y + feature.height);
+            const bl = worldToCanvas(feature.x, feature.y + feature.height);
+            
+            ctx.beginPath();
+            ctx.moveTo(tl.x, tl.y);
+            ctx.lineTo(tr.x, tr.y);
+            ctx.lineTo(br.x, br.y);
+            ctx.lineTo(bl.x, bl.y);
+            ctx.closePath();
+            ctx.fill();
+        } else if (feature.shape === 'ellipse') {
+            const center = worldToCanvas(feature.cx, feature.cy);
+            // Approximate ellipse radius in pixels (simplified)
+            const rx = feature.rx;
+            const ry = feature.ry;
+            
+            ctx.beginPath();
+            // Draw ellipse by sampling points
+            for (let a = 0; a <= Math.PI * 2; a += 0.1) {
+                const wx = feature.cx + rx * Math.cos(a);
+                const wy = feature.cy + ry * Math.sin(a);
+                const pos = worldToCanvas(wx, wy);
+                if (a === 0) ctx.moveTo(pos.x, pos.y);
+                else ctx.lineTo(pos.x, pos.y);
+            }
+            ctx.closePath();
+            ctx.fill();
+        }
+    });
+}
+
+// Draw path features on canvas
+function drawPathFeatures(ctx, paths, worldToCanvas, viewWidth, canvasWidth) {
+    if (!paths) return;
+    
+    paths.forEach(path => {
+        if (path.shape === 'line' && path.points && path.points.length > 1) {
+            const lineWidth = (path.width / viewWidth) * canvasWidth;
+            ctx.lineWidth = Math.max(lineWidth, 2);
+            
+            ctx.beginPath();
+            path.points.forEach((pt, i) => {
+                const pos = worldToCanvas(pt[0], pt[1]);
+                if (i === 0) ctx.moveTo(pos.x, pos.y);
+                else ctx.lineTo(pos.x, pos.y);
+            });
+            ctx.stroke();
+        }
+    });
 }
 
 function renderYardageOverlays(container, hole, captureData) {
@@ -186,27 +610,51 @@ function renderYardageOverlays(container, hole, captureData) {
     const greenFront = refs.greenFront;
     const teeFront = refs.teeFront;
     
+    // === LAYER 1: Terrain outlines (bottom) ===
+    addTerrainOutlines(svg, hole, captureData);
+    
+    // === LAYER 2: Slope arrows ===
+    addSlopeArrows(svg, hole, captureData);
+    
+    // === LAYER 3: Distance circles and markers ===
     // Collect all occupied positions (yardage markers) to avoid label overlap
     const occupiedPositions = [];
     
-    // Add fairway yardage markers FIRST (100, 150, 200 from front of green) - below everything else
+    // Add fairway yardage markers (100, 150, 200 from front of green)
     if (hole.centreline && greenFront) {
         const markerYardages = [100, 150, 200];
         const markerColors = ['#ff4444', '#ffffff', '#4488ff']; // Red, White, Blue
+        
+        // Get elevation at front of green for elevation difference calc
+        const greenFrontElevation = getElevationAt(hole, greenFront.x, greenFront.y);
+        
         markerYardages.forEach((yards, idx) => {
             const radiusWorld = yardsToWorld(yards);
             const markerWorldPos = findCircleCentrelineIntersection(hole.centreline, greenFront, radiusWorld);
             if (markerWorldPos) {
                 const pos = worldToCapture(markerWorldPos.x, markerWorldPos.y, captureData);
-                addYardageMarker(svg, pos, markerColors[idx]);
-                occupiedPositions.push({ x: pos.x, y: pos.y, radius: 12 }); // marker radius + padding
+                
+                // Calculate distance from tee
+                let yardsFromTee = null;
+                if (teeFront) {
+                    const dx = markerWorldPos.x - teeFront.x;
+                    const dy = markerWorldPos.y - teeFront.y;
+                    const distWorld = Math.sqrt(dx * dx + dy * dy);
+                    yardsFromTee = Math.round(worldToYards(distWorld));
+                }
+                
+                // Calculate elevation difference to front of green
+                const markerElevation = getElevationAt(hole, markerWorldPos.x, markerWorldPos.y);
+                const elevDiff = Math.round(greenFrontElevation - markerElevation);
+                
+                addYardageMarker(svg, pos, markerColors[idx], yards, yardsFromTee, elevDiff);
+                occupiedPositions.push({ x: pos.x, y: pos.y, radius: 30 }); // larger radius for labels
             }
         });
     }
     
-    // Add slope arrows
-    addSlopeArrows(svg, hole, captureData);
-    
+    // COMMENTED OUT: Concentric distance circles - keeping for future reference
+    /*
     // Collect all circle labels first, then filter overlaps
     const circleLabels = [];
     
@@ -296,6 +744,12 @@ function renderYardageOverlays(container, hole, captureData) {
             occupiedPositions.push({ x: label.labelPos.x, y: label.labelPos.y, radius: labelMinDist / 2 });
         }
     });
+    */
+    
+    // === LAYER 4: Hazard cover yardages (top) ===
+    if (hole.centreline && teeFront) {
+        addHazardCoverYardages(svg, hole, teeFront, captureData, occupiedPositions);
+    }
     
     container.appendChild(svg);
     
@@ -350,14 +804,66 @@ function addDistanceCircle(svg, refPoint, yards, centreline, captureData, circle
     }
 }
 
-function addYardageMarker(svg, pos, color) {
-    // Simple circle, no outline, no label, half size
+function addYardageMarker(svg, pos, color, yardsToGreen, yardsFromTee, elevDiff) {
+    // Marker circle - smaller with black outline
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('cx', pos.x);
     circle.setAttribute('cy', pos.y);
-    circle.setAttribute('r', '5');
+    circle.setAttribute('r', '3.5');
     circle.setAttribute('fill', color);
+    circle.setAttribute('stroke', 'black');
+    circle.setAttribute('stroke-width', '1');
     svg.appendChild(circle);
+    
+    // Text positioning - to the right of the marker
+    const textX = pos.x + 8;
+    const textY = pos.y;
+    
+    // 1. Black number - yards to front of green (matches hazard cover size)
+    const greenText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    greenText.setAttribute('x', textX);
+    greenText.setAttribute('y', textY);
+    greenText.setAttribute('fill', 'black');
+    greenText.setAttribute('font-size', '10');
+    greenText.setAttribute('font-weight', 'bold');
+    greenText.setAttribute('dominant-baseline', 'middle');
+    greenText.setAttribute('stroke', 'white');
+    greenText.setAttribute('stroke-width', '2');
+    greenText.setAttribute('paint-order', 'stroke');
+    greenText.textContent = yardsToGreen;
+    svg.appendChild(greenText);
+    
+    // 2. Red number - yards from front of tee (smaller, below)
+    if (yardsFromTee !== null) {
+        const teeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        teeText.setAttribute('x', textX);
+        teeText.setAttribute('y', textY + 9);
+        teeText.setAttribute('fill', '#cc0000');
+        teeText.setAttribute('font-size', '8');
+        teeText.setAttribute('font-weight', 'bold');
+        teeText.setAttribute('dominant-baseline', 'middle');
+        teeText.setAttribute('stroke', 'white');
+        teeText.setAttribute('stroke-width', '1.5');
+        teeText.setAttribute('paint-order', 'stroke');
+        teeText.textContent = yardsFromTee;
+        svg.appendChild(teeText);
+    }
+    
+    // 3. Black elevation difference (smaller, above)
+    if (elevDiff !== null && elevDiff !== 0) {
+        const elevText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        elevText.setAttribute('x', textX);
+        elevText.setAttribute('y', textY - 8);
+        elevText.setAttribute('fill', 'black');
+        elevText.setAttribute('font-size', '7');
+        elevText.setAttribute('font-weight', 'bold');
+        elevText.setAttribute('dominant-baseline', 'middle');
+        elevText.setAttribute('stroke', 'white');
+        elevText.setAttribute('stroke-width', '1.5');
+        elevText.setAttribute('paint-order', 'stroke');
+        elevText.textContent = (elevDiff > 0 ? '+' : '') + elevDiff;
+        svg.appendChild(elevText);
+    }
 }
 
 function addReferenceMarker(container, worldPos, captureData, type) {
@@ -378,24 +884,208 @@ function addReferenceMarker(container, worldPos, captureData, type) {
     container.appendChild(marker);
 }
 
+// Add black outlines around terrain features (bunkers, water, green)
+function addTerrainOutlines(svg, hole, captureData) {
+    // Get terrain from world instance
+    let terrain = null;
+    if (worldInstance && worldInstance.course && worldInstance.course.terrain) {
+        terrain = worldInstance.course.terrain;
+    }
+    
+    if (!terrain) return;
+    
+    const outlineGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    outlineGroup.setAttribute('class', 'terrain-outlines');
+    
+    // Draw fairway outlines
+    if (terrain.fairway) {
+        terrain.fairway.forEach(fairway => {
+            drawTerrainOutline(outlineGroup, fairway, captureData);
+        });
+    }
+    
+    // Draw tee box outlines
+    if (terrain.teeBox) {
+        terrain.teeBox.forEach(tee => {
+            drawTerrainOutline(outlineGroup, tee, captureData);
+        });
+    }
+    
+    // Note: path outlines skipped - path is a line, already drawn on canvas
+    
+    // Draw out of bounds outlines
+    if (terrain.outOfBounds) {
+        terrain.outOfBounds.forEach(oob => {
+            drawTerrainOutline(outlineGroup, oob, captureData);
+        });
+    }
+    
+    // Draw bunker outlines
+    if (terrain.bunker) {
+        terrain.bunker.forEach(bunker => {
+            drawTerrainOutline(outlineGroup, bunker, captureData);
+        });
+    }
+    
+    // Draw water outlines
+    if (terrain.water) {
+        terrain.water.forEach(water => {
+            drawTerrainOutline(outlineGroup, water, captureData);
+        });
+    }
+    
+    // Draw green outlines
+    if (terrain.green) {
+        terrain.green.forEach(green => {
+            drawTerrainOutline(outlineGroup, green, captureData);
+        });
+    }
+    
+    svg.appendChild(outlineGroup);
+}
+
+// Draw outline for a path (line with width)
+function drawPathOutline(group, feature, captureData) {
+    if (feature.shape === 'line' && feature.points && feature.points.length > 1) {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        let d = '';
+        feature.points.forEach((pt, i) => {
+            const pos = worldToCapture(pt[0], pt[1], captureData);
+            d += (i === 0 ? 'M' : 'L') + `${pos.x},${pos.y}`;
+        });
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'black');
+        // Convert path width from world units to pixels
+        const widthPx = (feature.width * WORLD_SCALE / captureData.viewWidth) * captureData.width;
+        path.setAttribute('stroke-width', Math.max(widthPx, 1));
+        path.setAttribute('opacity', '0.5');
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        group.appendChild(path);
+    }
+}
+
+// Add tree markers - green circles (bigger than real) with black dot for trunk
+function addTreeMarkers(svg, hole, captureData) {
+    // Get trees from course
+    let trees = null;
+    if (worldInstance && worldInstance.course && worldInstance.course.trees) {
+        trees = worldInstance.course.trees;
+    }
+    
+    if (!trees || trees.length === 0) return;
+    
+    const treeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    treeGroup.setAttribute('class', 'tree-markers');
+    
+    trees.forEach(tree => {
+        const pos = worldToCapture(tree.x, tree.y, captureData);
+        
+        // Get tree properties for canopy size
+        const props = treeProperties[tree.type];
+        if (!props) return;
+        
+        // Use average canopy radius at actual size
+        const canopyRadius = (props.canopyRadius.min + props.canopyRadius.max) / 2;
+        const radiusPx = (canopyRadius * WORLD_SCALE / captureData.viewWidth) * captureData.width;
+        
+        // Green circle for canopy (semi-transparent)
+        const canopy = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        canopy.setAttribute('cx', pos.x);
+        canopy.setAttribute('cy', pos.y);
+        canopy.setAttribute('r', Math.max(radiusPx, 6)); // minimum 6px
+        canopy.setAttribute('fill', 'rgba(34, 85, 34, 0.5)');
+        canopy.setAttribute('stroke', 'rgba(20, 60, 20, 0.7)');
+        canopy.setAttribute('stroke-width', '1');
+        treeGroup.appendChild(canopy);
+        
+        // Black dot for trunk
+        const trunk = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        trunk.setAttribute('cx', pos.x);
+        trunk.setAttribute('cy', pos.y);
+        trunk.setAttribute('r', '2');
+        trunk.setAttribute('fill', 'black');
+        treeGroup.appendChild(trunk);
+    });
+    
+    svg.appendChild(treeGroup);
+}
+
+// Draw outline for a single terrain feature
+function drawTerrainOutline(group, feature, captureData) {
+    if (feature.shape === 'polygon' && feature.points) {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        let d = '';
+        feature.points.forEach((pt, i) => {
+            const pos = worldToCapture(pt[0], pt[1], captureData);
+            d += (i === 0 ? 'M' : 'L') + `${pos.x},${pos.y}`;
+        });
+        d += 'Z';
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'black');
+        path.setAttribute('stroke-width', '1');
+        path.setAttribute('opacity', '0.5');
+        group.appendChild(path);
+    } else if (feature.shape === 'ellipse') {
+        // Draw ellipse as a path (to handle rotation properly)
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        let d = '';
+        for (let a = 0; a <= Math.PI * 2; a += 0.1) {
+            const wx = feature.cx + feature.rx * Math.cos(a);
+            const wy = feature.cy + feature.ry * Math.sin(a);
+            const pos = worldToCapture(wx, wy, captureData);
+            d += (a === 0 ? 'M' : 'L') + `${pos.x},${pos.y}`;
+        }
+        d += 'Z';
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'black');
+        path.setAttribute('stroke-width', '1');
+        path.setAttribute('opacity', '0.5');
+        group.appendChild(path);
+    } else if (feature.shape === 'rect') {
+        // Draw rect as a path with 4 corners (to handle rotation properly)
+        const tl = worldToCapture(feature.x, feature.y, captureData);
+        const tr = worldToCapture(feature.x + feature.width, feature.y, captureData);
+        const br = worldToCapture(feature.x + feature.width, feature.y + feature.height, captureData);
+        const bl = worldToCapture(feature.x, feature.y + feature.height, captureData);
+        
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const d = `M${tl.x},${tl.y} L${tr.x},${tr.y} L${br.x},${br.y} L${bl.x},${bl.y} Z`;
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', 'black');
+        path.setAttribute('stroke-width', '1');
+        path.setAttribute('opacity', '0.5');
+        group.appendChild(path);
+    }
+}
+
 // Add slope arrows showing terrain gradient
-// Arrows point downhill, length proportional to gradient
+// Arrows point downhill, fixed length, opacity indicates steepness
 function addSlopeArrows(svg, hole, captureData) {
     const { centerWorld, viewWidth, viewHeight, width, height } = captureData;
     
-    // Grid spacing in world units (yards) - dense coverage
-    const gridSpacing = 8;
+    // Grid spacing in world units
+    // 5 world units = 20 yards
+    const gridSpacing = 5;
     
-    // Minimum gradient to show arrow (feet per yard) - skip flat-ish areas
-    const minGradient = 0.1;
+    // Minimum gradient to show arrow (feet per yard)
+    // 0.35 = ~4 inches per yard = ~1.2% grade
+    const minGradient = 0.35;
     
-    // Arrow length scaling (pixels per unit gradient)
-    const arrowScale = 250;
-    const maxArrowLength = 18;
+    // Gradient for full opacity (feet per yard)
+    // 4.0 = 4 feet per yard = ~12% grade (very steep)
+    const maxGradient = 4.0;
     
-    // Calculate world bounds visible in capture
-    const halfViewW = viewWidth / (2 * WORLD_SCALE);
-    const halfViewH = viewHeight / (2 * WORLD_SCALE);
+    // Fixed arrow length in pixels
+    const arrowLength = 10;
+    
+    // Calculate world bounds visible in capture (2D - no WORLD_SCALE)
+    const halfViewW = viewWidth / 2;
+    const halfViewH = viewHeight / 2;
     
     const minX = centerWorld.x - halfViewW;
     const maxX = centerWorld.x + halfViewW;
@@ -417,13 +1107,12 @@ function addSlopeArrows(svg, hole, captureData) {
             
             const slope = getSlopeAt(hole, worldX, worldY);
             
-            // Skip if gradient too small (flat-ish areas)
+            // Skip if gradient too small (flat areas)
             if (slope.magnitude < minGradient) continue;
             
-            // Arrow length based on gradient - longer = steeper
-            // Subtract minGradient so arrows at threshold are shortest
-            const effectiveGradient = slope.magnitude - minGradient;
-            const arrowLength = Math.min(effectiveGradient * arrowScale, maxArrowLength);
+            // Calculate opacity based on gradient (0.4 to 1.0)
+            const gradientNormalized = Math.min((slope.magnitude - minGradient) / (maxGradient - minGradient), 1.0);
+            const opacity = 0.4 + gradientNormalized * 0.6;
             
             // Get screen position
             const pos = worldToCapture(worldX, worldY, captureData);
@@ -432,7 +1121,6 @@ function addSlopeArrows(svg, hole, captureData) {
             if (pos.x < 0 || pos.x > width || pos.y < 0 || pos.y > height) continue;
             
             // Downhill direction (negative of gradient)
-            // slope.x and slope.y are uphill gradients, so negate for downhill
             const downhillX = -slope.x;
             const downhillY = -slope.y;
             const mag = Math.sqrt(downhillX * downhillX + downhillY * downhillY);
@@ -449,15 +1137,14 @@ function addSlopeArrows(svg, hole, captureData) {
             const rotDirX = dirX * cos + dirY * sin;
             const rotDirY = -dirX * sin + dirY * cos;
             
-            // Calculate arrow endpoints
-            // Arrow starts at grid point, ends at downhill direction
+            // Calculate arrow endpoints - centered on grid point
             const halfLen = arrowLength / 2;
             const startX = pos.x - rotDirX * halfLen;
             const startY = pos.y - rotDirY * halfLen;
             const endX = pos.x + rotDirX * halfLen;
             const endY = pos.y + rotDirY * halfLen;
             
-            // Create arrow line - black
+            // Create arrow line - black with opacity
             const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
             line.setAttribute('x1', startX);
             line.setAttribute('y1', startY);
@@ -465,10 +1152,11 @@ function addSlopeArrows(svg, hole, captureData) {
             line.setAttribute('y2', endY);
             line.setAttribute('stroke', 'black');
             line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('opacity', opacity);
             arrowGroup.appendChild(line);
             
             // Create arrowhead at downhill end (end point)
-            const headSize = 4;
+            const headSize = 3;
             const headAngle = Math.PI / 6; // 30 degrees
             
             // Arrowhead wings
@@ -483,6 +1171,7 @@ function addSlopeArrows(svg, hole, captureData) {
             arrowhead.setAttribute('stroke', 'black');
             arrowhead.setAttribute('stroke-width', '1.5');
             arrowhead.setAttribute('fill', 'none');
+            arrowhead.setAttribute('opacity', opacity);
             arrowGroup.appendChild(arrowhead);
         }
     }
@@ -490,6 +1179,477 @@ function addSlopeArrows(svg, hole, captureData) {
     svg.appendChild(arrowGroup);
 }
 
+// ============================================
+// Hazard Cover Yardages (Bunkers and Water)
+// ============================================
+
+// Find the closest point on a hazard to the tee
+function findClosestPointOnHazard(teeFront, hazard) {
+    let closestPoint = null;
+    let closestDist = Infinity;
+    
+    if (hazard.shape === 'polygon' && hazard.points) {
+        // Check each edge of the polygon
+        for (let i = 0; i < hazard.points.length; i++) {
+            const p1 = hazard.points[i];
+            const p2 = hazard.points[(i + 1) % hazard.points.length];
+            
+            // Find closest point on this edge to tee
+            const closest = closestPointOnSegment(teeFront.x, teeFront.y, p1[0], p1[1], p2[0], p2[1]);
+            const dist = Math.sqrt((closest.x - teeFront.x) ** 2 + (closest.y - teeFront.y) ** 2);
+            
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestPoint = closest;
+            }
+        }
+    } else if (hazard.shape === 'ellipse') {
+        // For ellipse, find closest point on perimeter
+        // Direction from ellipse center to tee
+        const dx = teeFront.x - hazard.cx;
+        const dy = teeFront.y - hazard.cy;
+        const angle = Math.atan2(dy, dx);
+        
+        // Point on ellipse in that direction
+        closestPoint = {
+            x: hazard.cx + hazard.rx * Math.cos(angle),
+            y: hazard.cy + hazard.ry * Math.sin(angle)
+        };
+        closestDist = Math.sqrt((closestPoint.x - teeFront.x) ** 2 + (closestPoint.y - teeFront.y) ** 2);
+    } else if (hazard.shape === 'rect') {
+        // Convert rect to edges and find closest
+        const edges = [
+            [[hazard.x, hazard.y], [hazard.x + hazard.width, hazard.y]],
+            [[hazard.x + hazard.width, hazard.y], [hazard.x + hazard.width, hazard.y + hazard.height]],
+            [[hazard.x + hazard.width, hazard.y + hazard.height], [hazard.x, hazard.y + hazard.height]],
+            [[hazard.x, hazard.y + hazard.height], [hazard.x, hazard.y]]
+        ];
+        
+        for (const edge of edges) {
+            const closest = closestPointOnSegment(teeFront.x, teeFront.y, edge[0][0], edge[0][1], edge[1][0], edge[1][1]);
+            const dist = Math.sqrt((closest.x - teeFront.x) ** 2 + (closest.y - teeFront.y) ** 2);
+            
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestPoint = closest;
+            }
+        }
+    }
+    
+    return { point: closestPoint, distance: closestDist };
+}
+
+// Find closest point on a line segment to a point
+function closestPointOnSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    
+    if (len2 === 0) return { x: x1, y: y1 };
+    
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    
+    return {
+        x: x1 + t * dx,
+        y: y1 + t * dy
+    };
+}
+
+// Find where a ray from tee through a point intersects a hazard
+function findRayHazardIntersections(teeFront, direction, hazard) {
+    const intersections = [];
+    
+    // Extend ray far enough to pass through any hazard
+    const rayEnd = {
+        x: teeFront.x + direction.x * 1000,
+        y: teeFront.y + direction.y * 1000
+    };
+    
+    if (hazard.shape === 'polygon' && hazard.points) {
+        for (let i = 0; i < hazard.points.length; i++) {
+            const p1 = hazard.points[i];
+            const p2 = hazard.points[(i + 1) % hazard.points.length];
+            
+            const intersection = lineSegmentIntersect(
+                [teeFront.x, teeFront.y], 
+                [rayEnd.x, rayEnd.y], 
+                p1, 
+                p2
+            );
+            
+            if (intersection) {
+                const dist = Math.sqrt((intersection.x - teeFront.x) ** 2 + (intersection.y - teeFront.y) ** 2);
+                intersections.push({ x: intersection.x, y: intersection.y, dist });
+            }
+        }
+    } else if (hazard.shape === 'ellipse') {
+        const cx = hazard.cx, cy = hazard.cy, rx = hazard.rx, ry = hazard.ry;
+        const dx = rayEnd.x - teeFront.x;
+        const dy = rayEnd.y - teeFront.y;
+        
+        const a = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
+        const b = 2 * ((teeFront.x - cx) * dx / (rx * rx) + (teeFront.y - cy) * dy / (ry * ry));
+        const c = ((teeFront.x - cx) ** 2) / (rx * rx) + ((teeFront.y - cy) ** 2) / (ry * ry) - 1;
+        
+        const discriminant = b * b - 4 * a * c;
+        if (discriminant >= 0) {
+            const sqrtD = Math.sqrt(discriminant);
+            [(-b - sqrtD) / (2 * a), (-b + sqrtD) / (2 * a)].forEach(t => {
+                if (t >= 0 && t <= 1) {
+                    const ix = teeFront.x + t * dx;
+                    const iy = teeFront.y + t * dy;
+                    const dist = Math.sqrt((ix - teeFront.x) ** 2 + (iy - teeFront.y) ** 2);
+                    intersections.push({ x: ix, y: iy, dist });
+                }
+            });
+        }
+    } else if (hazard.shape === 'rect') {
+        const edges = [
+            [[hazard.x, hazard.y], [hazard.x + hazard.width, hazard.y]],
+            [[hazard.x + hazard.width, hazard.y], [hazard.x + hazard.width, hazard.y + hazard.height]],
+            [[hazard.x + hazard.width, hazard.y + hazard.height], [hazard.x, hazard.y + hazard.height]],
+            [[hazard.x, hazard.y + hazard.height], [hazard.x, hazard.y]]
+        ];
+        
+        for (const edge of edges) {
+            const intersection = lineSegmentIntersect(
+                [teeFront.x, teeFront.y], 
+                [rayEnd.x, rayEnd.y], 
+                edge[0], 
+                edge[1]
+            );
+            
+            if (intersection) {
+                const dist = Math.sqrt((intersection.x - teeFront.x) ** 2 + (intersection.y - teeFront.y) ** 2);
+                intersections.push({ x: intersection.x, y: intersection.y, dist });
+            }
+        }
+    }
+    
+    // Sort by distance from tee
+    intersections.sort((a, b) => a.dist - b.dist);
+    
+    return intersections;
+}
+
+// Check if hazard is within range of centreline
+function isHazardNearCentreline(hazard, centreline, maxDistWorld) {
+    // Get hazard center
+    let center;
+    if (hazard.shape === 'polygon' && hazard.points) {
+        let sumX = 0, sumY = 0;
+        hazard.points.forEach(p => { sumX += p[0]; sumY += p[1]; });
+        center = { x: sumX / hazard.points.length, y: sumY / hazard.points.length };
+    } else if (hazard.shape === 'ellipse') {
+        center = { x: hazard.cx, y: hazard.cy };
+    } else if (hazard.shape === 'rect') {
+        center = { x: hazard.x + hazard.width / 2, y: hazard.y + hazard.height / 2 };
+    } else {
+        return false;
+    }
+    
+    // Check distance to any centreline segment
+    for (let i = 0; i < centreline.length - 1; i++) {
+        const p1 = centreline[i];
+        const p2 = centreline[i + 1];
+        const dist = distanceToSegment(center.x, center.y, p1[0], p1[1], p2[0], p2[1]);
+        if (dist < maxDistWorld) return true;
+    }
+    
+    return false;
+}
+
+// Add hazard cover yardages to the SVG overlay
+function addHazardCoverYardages(svg, hole, teeFront, captureData, occupiedPositions) {
+    // Get terrain hazards from the world instance
+    let terrain = null;
+    if (worldInstance && worldInstance.course && worldInstance.course.terrain) {
+        terrain = worldInstance.course.terrain;
+    }
+    
+    if (!terrain) return;
+    
+    const centreline = hole.centreline;
+    if (!centreline || centreline.length < 2) return;
+    
+    // Max distance from centreline to consider hazard (200 yards in world units)
+    const maxDistWorld = yardsToWorld(200);
+    
+    // Process bunkers
+    if (terrain.bunker) {
+        terrain.bunker.forEach(bunker => {
+            if (isHazardNearCentreline(bunker, centreline, maxDistWorld)) {
+                addHazardYardageLabels(svg, teeFront, bunker, 'bunker', captureData, occupiedPositions);
+            }
+        });
+    }
+    
+    // Process water hazards
+    if (terrain.water) {
+        terrain.water.forEach(water => {
+            if (isHazardNearCentreline(water, centreline, maxDistWorld)) {
+                addHazardYardageLabels(svg, teeFront, water, 'water', captureData, occupiedPositions);
+            }
+        });
+    }
+}
+
+// Add yardage labels for a single hazard (entry and exit points)
+function addHazardYardageLabels(svg, teeFront, hazard, hazardType, captureData, occupiedPositions) {
+    // Find closest point on hazard to tee
+    const closest = findClosestPointOnHazard(teeFront, hazard);
+    if (!closest.point) return;
+    
+    // Direction from tee to closest point
+    const dx = closest.point.x - teeFront.x;
+    const dy = closest.point.y - teeFront.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) return;
+    
+    const direction = { x: dx / len, y: dy / len };
+    
+    // Find where ray from tee through closest point intersects hazard
+    const intersections = findRayHazardIntersections(teeFront, direction, hazard);
+    
+    if (intersections.length < 2) return; // Need entry and exit
+    
+    // First intersection is entry, last is exit (cover)
+    const entry = intersections[0];
+    const exit = intersections[intersections.length - 1];
+    
+    // Calculate yardages from tee front
+    const entryYards = Math.round(worldToYards(entry.dist));
+    const exitYards = Math.round(worldToYards(exit.dist));
+    
+    // Colors based on hazard type
+    const colors = hazardType === 'bunker' 
+        ? { bg: 'rgba(232, 212, 168, 0.9)', text: '#8B7355', border: '#A08060' }  // Sand/tan colors
+        : { bg: 'rgba(52, 152, 219, 0.9)', text: '#fff', border: '#2980b9' };      // Blue for water
+    
+    const labelMinDist = 20;
+    
+    // Add entry yardage label
+    const entryPos = worldToCapture(entry.x, entry.y, captureData);
+    const entryOverlaps = occupiedPositions.some(pos => {
+        const dx = entryPos.x - pos.x;
+        const dy = entryPos.y - pos.y;
+        return Math.sqrt(dx * dx + dy * dy) < (pos.radius + labelMinDist / 2);
+    });
+    
+    if (!entryOverlaps) {
+        addHazardYardageLabel(svg, entryPos, entryYards, colors, false);
+        occupiedPositions.push({ x: entryPos.x, y: entryPos.y, radius: labelMinDist / 2 });
+    }
+    
+    // Add exit (cover) yardage label
+    const exitPos = worldToCapture(exit.x, exit.y, captureData);
+    const exitOverlaps = occupiedPositions.some(pos => {
+        const dx = exitPos.x - pos.x;
+        const dy = exitPos.y - pos.y;
+        return Math.sqrt(dx * dx + dy * dy) < (pos.radius + labelMinDist / 2);
+    });
+    
+    if (!exitOverlaps) {
+        addHazardYardageLabel(svg, exitPos, exitYards, colors, true);
+        occupiedPositions.push({ x: exitPos.x, y: exitPos.y, radius: labelMinDist / 2 });
+    }
+}
+
+// Add a single hazard yardage label with dot marker
+function addHazardYardageLabel(svg, pos, yards, colors, isCover) {
+    // Create a group for the label
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    
+    // Black dot at intersection point
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('cx', pos.x);
+    dot.setAttribute('cy', pos.y);
+    dot.setAttribute('r', '4');
+    dot.setAttribute('fill', 'black');
+    group.appendChild(dot);
+    
+    // Text label offset to the side
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', pos.x + 8);
+    text.setAttribute('y', pos.y);
+    text.setAttribute('fill', 'black');
+    text.setAttribute('font-size', '8');
+    text.setAttribute('font-weight', 'bold');
+    text.setAttribute('text-anchor', 'start');
+    text.setAttribute('dominant-baseline', 'middle');
+    text.setAttribute('stroke', 'white');
+    text.setAttribute('stroke-width', '1.5');
+    text.setAttribute('paint-order', 'stroke');
+    text.textContent = `${yards}`;
+    group.appendChild(text);
+    
+    svg.appendChild(group);
+}
+
+
+// ============================================
+// Compass Rose
+// ============================================
+
+function addCompassRose(container, rotationAngle) {
+    const rose = document.createElement('div');
+    rose.className = 'compass-rose';
+    rose.style.cssText = `
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 50px;
+        height: 50px;
+        z-index: 20;
+    `;
+    
+    // The map is rotated by rotationAngle, so north arrow needs to point opposite
+    const northAngle = -rotationAngle * (180 / Math.PI);
+    
+    rose.innerHTML = `
+        <svg width="50" height="50" viewBox="0 0 50 50">
+            <g transform="rotate(${northAngle}, 25, 25)">
+                <!-- Outer circle -->
+                <circle cx="25" cy="25" r="22" fill="rgba(255,255,255,0.8)" stroke="#333" stroke-width="1"/>
+                
+                <!-- North arrow (red) -->
+                <polygon points="25,5 21,20 25,17 29,20" fill="#cc0000" stroke="#990000" stroke-width="0.5"/>
+                
+                <!-- South arrow (white) -->
+                <polygon points="25,45 21,30 25,33 29,30" fill="#ffffff" stroke="#333" stroke-width="0.5"/>
+                
+                <!-- East-West line -->
+                <line x1="8" y1="25" x2="17" y2="25" stroke="#333" stroke-width="1.5"/>
+                <line x1="33" y1="25" x2="42" y2="25" stroke="#333" stroke-width="1.5"/>
+                
+                <!-- N label -->
+                <text x="25" y="14" text-anchor="middle" font-size="8" font-weight="bold" fill="#cc0000">N</text>
+                
+                <!-- Center dot -->
+                <circle cx="25" cy="25" r="2" fill="#333"/>
+            </g>
+        </svg>
+    `;
+    
+    container.appendChild(rose);
+}
+
+// ============================================
+// Course Stats Page
+// ============================================
+
+function renderCoursePage(modal, hole) {
+    const wind = getWind();
+    const compassDir = degreesToCompass(wind.direction);
+    
+    // Get course data
+    let courseName = 'Unknown Course';
+    let holes = [];
+    let totalPar = 0;
+    let totalYards = 0;
+    
+    if (worldInstance && worldInstance.course) {
+        courseName = worldInstance.course.name || 'Unknown Course';
+        holes = worldInstance.course.holes || [];
+        holes.forEach(h => {
+            totalPar += h.par || 0;
+            totalYards += h.yards || 0;
+        });
+    }
+    
+    modal.innerHTML = `
+        <div class="yardage-header">
+            <div class="modal-title">${courseName}</div>
+            <div class="yardage-tabs">
+                <button class="yardage-tab-btn" id="hole-tab">Hole</button>
+                <button class="yardage-tab-btn" id="green-tab">Green</button>
+                <button class="yardage-tab-btn" id="clubs-tab">Clubs</button>
+                <button class="yardage-close-btn" id="close-btn">✕</button>
+            </div>
+        </div>
+        <div class="yardage-content course-stats">
+            <div class="course-section">
+                <h3>Wind Conditions</h3>
+                <div class="wind-display">
+                    <div class="wind-arrow" style="transform: rotate(${wind.direction}deg)">
+                        <svg width="60" height="60" viewBox="0 0 60 60">
+                            <circle cx="30" cy="30" r="28" fill="rgba(135,206,235,0.3)" stroke="#4a90d9" stroke-width="2"/>
+                            <polygon points="30,8 24,28 30,24 36,28" fill="#4a90d9"/>
+                            <circle cx="30" cy="30" r="4" fill="#4a90d9"/>
+                        </svg>
+                    </div>
+                    <div class="wind-info">
+                        <div class="wind-speed">${wind.speed} mph</div>
+                        <div class="wind-direction">${wind.direction}° ${compassDir}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="course-section">
+                <h3>Course Details</h3>
+                <div class="course-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Holes:</span>
+                        <span class="detail-value">${holes.length}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Total Par:</span>
+                        <span class="detail-value">${totalPar}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Total Yards:</span>
+                        <span class="detail-value">${totalYards.toLocaleString()}</span>
+                    </div>
+                </div>
+                
+                <div class="hole-list">
+                    <table class="hole-table">
+                        <thead>
+                            <tr>
+                                <th>Hole</th>
+                                <th>Par</th>
+                                <th>Yards</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${holes.map(h => `
+                                <tr>
+                                    <td>${h.number || h.name}</td>
+                                    <td>${h.par}</td>
+                                    <td>${h.yards}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="course-section">
+                <h3>Leaderboard</h3>
+                <div class="leaderboard" id="leaderboard">
+                    <div class="leaderboard-empty">No scores recorded yet</div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    modal.querySelector('#close-btn').addEventListener('click', () => {
+        modal.closest('.modal-overlay').remove();
+    });
+    modal.querySelector('#hole-tab').addEventListener('click', () => {
+        currentPage = 'hole';
+        renderPage(modal, hole);
+    });
+    modal.querySelector('#green-tab').addEventListener('click', () => {
+        currentPage = 'green';
+        renderPage(modal, hole);
+    });
+    modal.querySelector('#clubs-tab').addEventListener('click', () => {
+        currentPage = 'clubs';
+        renderPage(modal, hole);
+    });
+}
 
 // ============================================
 // Green Page - Detailed green view
@@ -503,6 +1663,7 @@ function renderGreenPage(modal, hole) {
                 <button class="yardage-tab-btn" id="hole-tab">Hole</button>
                 <button class="yardage-tab-btn" id="clubs-tab">Clubs</button>
                 <button class="yardage-tab-btn" id="golfer-tab">Golfer</button>
+                <button class="yardage-tab-btn" id="course-tab">Course</button>
                 <button class="yardage-close-btn" id="close-btn">✕</button>
             </div>
         </div>
@@ -526,6 +1687,10 @@ function renderGreenPage(modal, hole) {
     });
     modal.querySelector('#clubs-tab').addEventListener('click', () => {
         currentPage = 'clubs';
+        renderPage(modal, hole);
+    });
+    modal.querySelector('#course-tab').addEventListener('click', () => {
+        currentPage = 'course';
         renderPage(modal, hole);
     });
     
@@ -554,68 +1719,171 @@ function renderGreenMap(modal, hole) {
     // Calculate green bounds with padding for surrounding terrain
     const greenBounds = calculateGreenBounds(greenZone, 8);
     
-    // Capture the world view focused on the green
-    let capturedCanvas = null;
-    if (worldInstance) {
-        capturedCanvas = worldInstance.captureGreenView(hole, greenBounds, width, height, objectsToHideList);
-    }
-    
     // Clear loading message
     mapContainer.innerHTML = '';
     
-    if (capturedCanvas) {
-        // Add the captured image as background
-        capturedCanvas.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%;';
-        mapContainer.appendChild(capturedCanvas);
-        
-        // Store capture data for overlay positioning
-        const captureData = {
-            centerWorld: capturedCanvas.centerWorld,
-            rotationAngle: capturedCanvas.rotationAngle,
-            viewWidth: capturedCanvas.viewWidth,
-            viewHeight: capturedCanvas.viewHeight,
-            width: width,
-            height: height,
-            greenBounds: greenBounds
-        };
-        
-        // Add elevation grid overlay on the green
-        const greenGridCanvas = document.createElement('canvas');
-        greenGridCanvas.width = width;
-        greenGridCanvas.height = height;
-        greenGridCanvas.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none;';
-        const gridCtx = greenGridCanvas.getContext('2d');
-        drawGreenElevationGrid(gridCtx, hole, greenZone, captureData);
-        mapContainer.appendChild(greenGridCanvas);
-        
-        // Create SVG overlay for markers and arrows
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('class', 'yardage-overlay-svg');
-        svg.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;';
-        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-        
-        // Add slope arrows on surrounding terrain (NOT on the green)
-        addGreenSlopeArrows(svg, hole, greenZone, captureData);
-        
-        // Add front of green marker and depth line
-        const greenFront = findGreenFront(hole);
-        if (greenFront) {
-            addGreenFrontMarker(svg, greenFront, hole, greenZone, captureData);
-        }
-        
-        // Add hole marker
-        if (hole.hole) {
-            addHoleMarker(svg, hole.hole, captureData);
-        }
-        
-        mapContainer.appendChild(svg);
-        
-        // Add elevation legend
-        addElevationLegend(mapContainer, captureData);
-    } else {
-        // Fallback to canvas rendering if world capture fails
-        renderGreenMapFallback(mapContainer, hole, greenZone, greenBounds, width, height);
+    // Get terrain and trees data
+    let terrain = null;
+    let trees = null;
+    if (worldInstance && worldInstance.course) {
+        terrain = worldInstance.course.terrain;
+        trees = worldInstance.course.trees;
     }
+    
+    // Calculate rotation angle to orient tee at bottom, hole at top
+    const teePos = hole.tee;
+    const holePos = hole.hole;
+    const dx = holePos.x - teePos.x;
+    const dy = holePos.y - teePos.y;
+    const rotationAngle = Math.atan2(dx, -dy);
+    
+    // Calculate view dimensions
+    const boundsWidth = greenBounds.maxX - greenBounds.minX;
+    const boundsHeight = greenBounds.maxY - greenBounds.minY;
+    const aspect = width / height;
+    
+    let viewWidth, viewHeight;
+    if (boundsWidth / boundsHeight > aspect) {
+        viewWidth = boundsWidth * 1.15;
+        viewHeight = viewWidth / aspect;
+    } else {
+        viewHeight = boundsHeight * 1.15;
+        viewWidth = viewHeight * aspect;
+    }
+    
+    const centerX = (greenBounds.minX + greenBounds.maxX) / 2;
+    const centerY = (greenBounds.minY + greenBounds.maxY) / 2;
+    
+    // Create canvas for 2D rendering
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%;';
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Fill with light green (rough/grass base)
+    ctx.fillStyle = '#90c090';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Helper to convert world coords to canvas coords (with rotation)
+    function worldToCanvas(worldX, worldY) {
+        const ox = worldX - centerX;
+        const oy = worldY - centerY;
+        const cos = Math.cos(rotationAngle);
+        const sin = Math.sin(rotationAngle);
+        const rx = ox * cos + oy * sin;
+        const ry = -ox * sin + oy * cos;
+        const px = (rx / viewWidth + 0.5) * width;
+        const py = (ry / viewHeight + 0.5) * height;
+        return { x: px, y: py };
+    }
+    
+    // Draw terrain features (same as hole page)
+    if (terrain) {
+        // Draw fairway
+        ctx.fillStyle = '#b8e8b8';
+        drawTerrainFeatures(ctx, terrain.fairway, worldToCanvas);
+        
+        // Draw tee box
+        ctx.fillStyle = '#b8e8b8';
+        drawTerrainFeatures(ctx, terrain.teeBox, worldToCanvas);
+        
+        // Draw path
+        ctx.strokeStyle = '#c8c0b0';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        drawPathFeatures(ctx, terrain.path, worldToCanvas, viewWidth, width);
+        
+        // Draw water
+        ctx.fillStyle = '#a0c8e8';
+        drawTerrainFeatures(ctx, terrain.water, worldToCanvas);
+        
+        // Draw bunkers
+        ctx.fillStyle = '#e8dca0';
+        drawTerrainFeatures(ctx, terrain.bunker, worldToCanvas);
+        
+        // Don't draw green here - we'll draw it with elevation gradient
+    }
+    
+    // Draw trees
+    if (trees) {
+        trees.forEach(tree => {
+            const props = treeProperties[tree.type];
+            if (!props) return;
+            
+            const pos = worldToCanvas(tree.x, tree.y);
+            const canopyRadius = (props.canopyRadius.min + props.canopyRadius.max) / 2;
+            const category = props.category;
+            const seed = Math.abs(tree.x * 1000 + tree.y * 7);
+            
+            ctx.fillStyle = 'rgba(34, 85, 34, 0.5)';
+            drawTree2DCanopy(ctx, pos, canopyRadius, category, seed, viewWidth, width, rotationAngle);
+            
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+    
+    mapContainer.appendChild(canvas);
+    
+    // Store capture data for overlay positioning
+    const captureData = {
+        centerWorld: { x: centerX, y: centerY },
+        rotationAngle: rotationAngle,
+        viewWidth: viewWidth,
+        viewHeight: viewHeight,
+        width: width,
+        height: height,
+        greenBounds: greenBounds
+    };
+    
+    // Add elevation grid overlay on the green
+    const greenGridCanvas = document.createElement('canvas');
+    greenGridCanvas.width = width;
+    greenGridCanvas.height = height;
+    greenGridCanvas.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none;';
+    const gridCtx = greenGridCanvas.getContext('2d');
+    drawGreenElevationGrid(gridCtx, hole, greenZone, captureData);
+    mapContainer.appendChild(greenGridCanvas);
+    
+    // Create SVG overlay for markers and arrows
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'yardage-overlay-svg');
+    svg.style.cssText = 'position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;';
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    
+    // Add terrain outlines
+    addTerrainOutlines(svg, hole, captureData);
+    
+    // Add slope arrows on surrounding terrain (NOT on the green)
+    addGreenSlopeArrows(svg, hole, greenZone, captureData);
+    
+    // Add front of green marker and depth line
+    const greenFront = findGreenFront(hole);
+    if (greenFront) {
+        addGreenFrontMarker(svg, greenFront, hole, greenZone, captureData);
+    }
+    
+    // Add hole marker
+    if (hole.hole) {
+        addHoleMarker(svg, hole.hole, captureData);
+    }
+    
+    // Add ball marker if ball is within or near the green view
+    if (ballInstance) {
+        addBallMarker(svg, captureData);
+    }
+    
+    mapContainer.appendChild(svg);
+    
+    // Add elevation legend
+    addElevationLegend(mapContainer, captureData);
+    
+    // Add compass rose
+    addCompassRose(mapContainer, rotationAngle);
 }
 
 // Fallback rendering when world capture is not available
@@ -686,6 +1954,11 @@ function renderGreenMapFallback(mapContainer, hole, greenZone, greenBounds, widt
     // Add hole marker
     if (hole.hole) {
         addHoleMarker(svg, hole.hole, captureData);
+    }
+    
+    // Add ball marker if ball is within or near the green view
+    if (ballInstance) {
+        addBallMarker(svg, captureData);
     }
     
     mapContainer.appendChild(svg);
@@ -766,7 +2039,7 @@ function drawGreenElevationGrid(ctx, hole, greenZone, captureData) {
     });
     
     // Draw green outline
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.lineWidth = 2;
     drawGreenOutline(ctx, greenZone, captureData);
 }
@@ -1180,10 +2453,13 @@ function drawGreenDepthLine(svg, depthInfo, captureData) {
     text.setAttribute('x', labelX);
     text.setAttribute('y', labelY);
     text.setAttribute('fill', 'black');
-    text.setAttribute('font-size', '11');
+    text.setAttribute('font-size', '12');
     text.setAttribute('font-weight', 'bold');
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('dominant-baseline', 'middle');
+    text.setAttribute('stroke', 'white');
+    text.setAttribute('stroke-width', '2');
+    text.setAttribute('paint-order', 'stroke');
     text.setAttribute('transform', `rotate(${rotationDeg}, ${labelX}, ${labelY})`);
     text.textContent = `${depthInfo.depthFeet} ft`;
     svg.appendChild(text);
@@ -1233,10 +2509,13 @@ function drawGreenWidthLine(svg, widthInfo, captureData) {
     text.setAttribute('x', labelX);
     text.setAttribute('y', labelY);
     text.setAttribute('fill', 'black');
-    text.setAttribute('font-size', '11');
+    text.setAttribute('font-size', '12');
     text.setAttribute('font-weight', 'bold');
     text.setAttribute('text-anchor', 'middle');
     text.setAttribute('dominant-baseline', 'middle');
+    text.setAttribute('stroke', 'white');
+    text.setAttribute('stroke-width', '2');
+    text.setAttribute('paint-order', 'stroke');
     text.setAttribute('transform', `rotate(${rotationDeg}, ${labelX}, ${labelY})`);
     text.textContent = `${widthInfo.widthFeet} ft`;
     svg.appendChild(text);
@@ -1254,6 +2533,28 @@ function addHoleMarker(svg, holePos, captureData) {
     cup.setAttribute('stroke', '#fff');
     cup.setAttribute('stroke-width', '1.5');
     svg.appendChild(cup);
+}
+
+function addBallMarker(svg, captureData) {
+    if (!ballInstance) return;
+    
+    const ballPos = ballInstance.getPosition();
+    const pos = worldToCapture(ballPos.x, ballPos.y, captureData);
+    
+    // Only show if ball is within the visible area
+    if (pos.x < 0 || pos.x > captureData.width || pos.y < 0 || pos.y > captureData.height) {
+        return;
+    }
+    
+    // Ball marker - white circle with black outline
+    const ball = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    ball.setAttribute('cx', pos.x);
+    ball.setAttribute('cy', pos.y);
+    ball.setAttribute('r', '5');
+    ball.setAttribute('fill', '#fff');
+    ball.setAttribute('stroke', '#333');
+    ball.setAttribute('stroke-width', '1.5');
+    svg.appendChild(ball);
 }
 
 function addElevationLegend(container, captureData) {
@@ -1279,6 +2580,7 @@ function renderClubsPage(modal, hole) {
                 <button class="yardage-tab-btn" id="hole-tab">Hole</button>
                 <button class="yardage-tab-btn" id="green-tab">Green</button>
                 <button class="yardage-tab-btn" id="golfer-tab">Golfer</button>
+                <button class="yardage-tab-btn" id="course-tab">Course</button>
                 <button class="yardage-close-btn" id="close-btn">✕</button>
             </div>
         </div>
@@ -1311,6 +2613,10 @@ function renderClubsPage(modal, hole) {
     });
     modal.querySelector('#golfer-tab').addEventListener('click', () => {
         currentPage = 'golfer';
+        renderPage(modal, hole);
+    });
+    modal.querySelector('#course-tab').addEventListener('click', () => {
+        currentPage = 'course';
         renderPage(modal, hole);
     });
 }
@@ -1471,6 +2777,7 @@ function renderGolferPage(modal, hole) {
                 <button class="yardage-tab-btn" id="hole-tab">Hole</button>
                 <button class="yardage-tab-btn" id="green-tab">Green</button>
                 <button class="yardage-tab-btn" id="clubs-tab">Clubs</button>
+                <button class="yardage-tab-btn" id="course-tab">Course</button>
                 <button class="yardage-close-btn" id="close-btn">✕</button>
             </div>
         </div>
@@ -1526,6 +2833,10 @@ function renderGolferPage(modal, hole) {
     });
     modal.querySelector('#clubs-tab').addEventListener('click', () => {
         currentPage = 'clubs';
+        renderPage(modal, hole);
+    });
+    modal.querySelector('#course-tab').addEventListener('click', () => {
+        currentPage = 'course';
         renderPage(modal, hole);
     });
 }

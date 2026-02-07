@@ -21,6 +21,9 @@ export class CourseData {
         // Trees stored globally
         this.trees = [];
         
+        // Sprinkler heads stored globally - yardage markers for caddies
+        this.sprinklerHeads = [];
+        
         // Hole details - just positioning info, not terrain
         this.holes = [];
         
@@ -354,6 +357,18 @@ export class CourseData {
         }
     }
     
+    // Sprinkler head methods - sprinkler heads are global
+    addSprinklerHead(sprinklerHead) {
+        this.expandBoundsIfNeeded(sprinklerHead.x, sprinklerHead.y);
+        this.sprinklerHeads.push(sprinklerHead);
+    }
+    
+    removeSprinklerHead(index) {
+        if (this.sprinklerHeads[index]) {
+            this.sprinklerHeads.splice(index, 1);
+        }
+    }
+    
     // Export/Import
     export() {
         return {
@@ -361,6 +376,7 @@ export class CourseData {
             bounds: this.bounds,
             terrain: this.terrain,
             trees: this.trees,
+            sprinklerHeads: this.sprinklerHeads,
             elevationGrid: this.elevationGrid,
             holes: this.holes.map(hole => ({
                 number: hole.number,
@@ -384,6 +400,9 @@ export class CourseData {
         
         // Import trees
         this.trees = data.trees || [];
+        
+        // Import sprinkler heads
+        this.sprinklerHeads = data.sprinklerHeads || [];
         
         // Import elevation grid
         if (data.elevationGrid) {

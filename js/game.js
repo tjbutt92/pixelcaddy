@@ -665,9 +665,9 @@ function updateCameraForBall(ballX, ballY) {
     const normX = dist > 0 ? dirX / dist : 0;
     const normZ = dist > 0 ? dirZ / dist : 1;
     
-    // 8ft = 2.67 yards, 24ft = 8 yards
-    const camHeight = 2.67;
-    const camBehind = 8;
+    // Camera height ~12ft (4 yards), distance behind ~30ft (10 yards)
+    const camHeight = 4;
+    const camBehind = 10;
     
     camera.position.set(
         ballPos3D.x - normX * camBehind,
@@ -690,9 +690,9 @@ function updateCameraForBallAlongCentreline(ballX, ballY, angleInDegrees) {
     const norm3DX = Math.sin(angleRad);
     const norm3DZ = -Math.cos(angleRad);
     
-    // 8ft = 2.67 yards, 24ft = 8 yards
-    const camHeight = 2.67;
-    const camBehind = 8;
+    // Camera height ~12ft (4 yards), distance behind ~30ft (10 yards)
+    const camHeight = 4;
+    const camBehind = 10;
     
     camera.position.set(
         ballPos3D.x - norm3DX * camBehind,

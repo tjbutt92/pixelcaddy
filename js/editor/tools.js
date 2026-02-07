@@ -175,6 +175,10 @@ export class ToolManager {
                     this.placeTree(world);
                     break;
                     
+                case 'sprinkler':
+                    this.placeSprinklerHead(world);
+                    break;
+                    
                 case 'elevation-up':
                 case 'elevation-down':
                 case 'elevation-smooth':
@@ -392,11 +396,24 @@ export class ToolManager {
             }
         }
         
+        // Check for sprinkler head hit (global sprinkler heads)
+        const sprinklerIndex = this.canvas.hitTestSprinklerHead(world.x, world.y);
+        if (sprinklerIndex >= 0) {
+            this.canvas.selectedZone = null;
+            this.canvas.selectedTree = null;
+            this.canvas.selectedSprinklerHead = sprinklerIndex;
+            this.canvas.selectedNode = null;
+            this.canvas.render();
+            this.updateSelectionProps();
+            return;
+        }
+        
         // Check for tree hit (global trees)
         const treeIndex = this.canvas.hitTestTree(world.x, world.y);
         if (treeIndex >= 0) {
             this.canvas.selectedZone = null;
             this.canvas.selectedTree = treeIndex;
+            this.canvas.selectedSprinklerHead = null;
             this.canvas.selectedNode = null;
             this.canvas.render();
             this.updateSelectionProps();
@@ -408,6 +425,7 @@ export class ToolManager {
         if (zoneIndex >= 0) {
             this.canvas.selectedZone = zoneIndex;
             this.canvas.selectedTree = null;
+            this.canvas.selectedSprinklerHead = null;
             this.canvas.selectedNode = null;
             this.canvas.render();
             this.updateSelectionProps();
@@ -703,6 +721,20 @@ export class ToolManager {
         this.canvas.render();
     }
     
+    placeSprinklerHead(world) {
+        const x = this.snapToGrid(world.x);
+        const y = this.snapToGrid(world.y);
+        
+        const sprinklerHead = {
+            x: x,
+            y: y
+        };
+        
+        // Add to global sprinkler heads array
+        this.courseData.addSprinklerHead(sprinklerHead);
+        this.canvas.render();
+    }
+    
     updateSelectionProps() {
         const propsDiv = document.getElementById('selection-props');
         
@@ -782,6 +814,30 @@ export class ToolManager {
                     <div class="prop-row">
                         <span class="prop-label">Y:</span>
                         <span class="prop-value">${tree.y.toFixed(1)}</span>
+                    </div>
+                `;
+            }
+        } else if (this.canvas.selectedSprinklerHead !== null) {
+            const sprinkler = this.courseData.sprinklerHeads[this.canvas.selectedSprinklerHead];
+            
+            if (sprinkler) {
+                const WORLD_TO_YARDS = 4;
+                propsDiv.innerHTML = `
+                    <div class="prop-row">
+                        <span class="prop-label">Type:</span>
+                        <span class="prop-value">Sprinkler Head</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">X:</span>
+                        <span class="prop-value">${sprinkler.x.toFixed(1)}</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">Y:</span>
+                        <span class="prop-value">${sprinkler.y.toFixed(1)}</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">Position:</span>
+                        <span class="prop-value">${Math.round(sprinkler.x * WORLD_TO_YARDS)}y × ${Math.round(sprinkler.y * WORLD_TO_YARDS)}y</span>
                     </div>
                 `;
             }

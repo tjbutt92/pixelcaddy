@@ -66,6 +66,17 @@ export class CodeGenerator {
         lines.push(`    ],`);
         lines.push('');
         
+        // Sprinkler heads - global
+        lines.push(`    // ========== SPRINKLER HEADS ==========`);
+        lines.push(`    sprinklerHeads: [`);
+        const sprinklerHeads = data.sprinklerHeads || [];
+        sprinklerHeads.forEach((sprinkler, sIndex) => {
+            const comma = sIndex === sprinklerHeads.length - 1 ? '' : ',';
+            lines.push(`        { x: ${this.round(sprinkler.x)}, y: ${this.round(sprinkler.y)} }${comma}`);
+        });
+        lines.push(`    ],`);
+        lines.push('');
+        
         // Hole details - just positioning info
         lines.push(`    // ========== HOLE DETAILS ==========`);
         lines.push(`    holes: [`);

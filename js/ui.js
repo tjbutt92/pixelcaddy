@@ -1,6 +1,6 @@
 // UI module - modals and button handlers
 import { clubs } from './clubs.js';
-import { showYardageBook, setYardageBookWorld, setObjectsToHide } from './yardageBook.js';
+import { showYardageBook, setYardageBookWorld, setObjectsToHide, setYardageBookBall } from './yardageBook.js';
 
 const shapes = ['Draw', 'Straight', 'Fade'];
 
@@ -16,6 +16,10 @@ export function setupUI(gameState, aimLine, ball, onHitShot, world = null, objec
     }
     // Pass objects to hide during capture (like aim line)
     setObjectsToHide(objectsToHide);
+    // Pass ball reference for position display on green map
+    if (ball) {
+        setYardageBookBall(ball);
+    }
     const btnClub = document.getElementById('btn-club');
     const btnPower = document.getElementById('btn-power');
     const btnShape = document.getElementById('btn-shape');
@@ -94,9 +98,11 @@ export function setupUI(gameState, aimLine, ball, onHitShot, world = null, objec
         const indicator = document.getElementById('wind-indicator');
         if (!indicator) return;
         
-        // Arrow shows absolute wind direction (where wind is blowing TO)
-        // Wind direction is where it comes FROM, so add 180 to show where it blows TO
-        const arrowRotation = wind.direction + 180;
+        // Arrow shows where wind is blowing TO
+        // wind.direction is where wind comes FROM (0° = from north)
+        // CSS rotation: 0° = right (east), 90° = down (south), etc.
+        // So wind from north (0°) blows south → arrow points down (90°)
+        const arrowRotation = wind.direction + 90;
         
         const arrow = indicator.querySelector('.wind-arrow');
         if (arrow) arrow.style.transform = `rotate(${arrowRotation}deg)`;

@@ -1,5 +1,5 @@
 // Shot simulation module - now using realistic physics engine
-import { golfer, applyVariability, recordShot } from './golfer.js';
+import { golfer, recordShot } from './golfer.js';
 import { getElevationAt, getElevationChange, getSlopeAt, getTerrainAt } from './terrain.js';
 import { 
     simulateFullShot, 
@@ -54,13 +54,6 @@ export class ShotSimulator {
         const lie = this.currentLie;
         const clubStats = this.getClubStats(golfer, club.name);
         const variability = generateShotVariability(clubStats, club.name, { lie });
-        const adjustedParams = applyVariability(params, golfer);
-        
-        if (adjustedParams.isMiss) {
-            variability.isMiss = true;
-            variability.launchDirection += adjustedParams.directionErrorYards * 0.3;
-            variability.spinAxisOffset += adjustedParams.directionErrorYards * 0.5;
-        }
         
         let launchConditions = generateLaunchConditions(club.name, power, shape, variability);
         if (!launchConditions) {
