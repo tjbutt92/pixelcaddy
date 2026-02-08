@@ -1,20 +1,14 @@
 // Golf ball physics engine - TrackMan/Toptracer style simulation
 // Implements realistic aerodynamics with Magnus effect, drag, and spin decay
 
-// Physical constants
-const GRAVITY = 9.81;           // m/s²
-const AIR_DENSITY = 1.225;      // kg/m³ at sea level
-const BALL_MASS = 0.0459;       // kg (45.9g)
-const BALL_RADIUS = 0.02135;    // m (42.7mm diameter)
-const BALL_AREA = Math.PI * BALL_RADIUS * BALL_RADIUS;
-const KINEMATIC_VISCOSITY = 1.48e-5; // m²/s for air at ~15°C
+import { PHYSICS, CONVERSION } from './constants.js';
+import { getClubLieDifficulty, gaussianRandom } from './utils.js';
 
-// Conversion factors
-const MPH_TO_MS = 0.44704;
-const MS_TO_MPH = 2.23694;
-const YARDS_TO_METERS = 0.9144;
-const METERS_TO_YARDS = 1.09361;
-const RPM_TO_RADS = Math.PI / 30;
+// Destructure physics constants for convenience
+const { GRAVITY, AIR_DENSITY, BALL_MASS, BALL_RADIUS, BALL_AREA, KINEMATIC_VISCOSITY } = PHYSICS;
+
+// Destructure conversion factors for convenience
+const { MPH_TO_MS, MS_TO_MPH, YARDS_TO_METERS, METERS_TO_YARDS, RPM_TO_RADS } = CONVERSION;
 
 // Club data with realistic launch parameters for a scratch golfer
 // Ball speeds calibrated to produce yardage book distances (carry)
@@ -561,16 +555,6 @@ export function generateShotVariability(golferStats, clubName, conditions = {}) 
 }
 
 /**
- * Gaussian random number generator (Box-Muller transform)
- */
-function gaussianRandom() {
-    let u = 0, v = 0;
-    while (u === 0) u = Math.random();
-    while (v === 0) v = Math.random();
-    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-}
-
-/**
  * Full shot simulation combining all physics
  * Returns complete shot data including trajectory and landing
  */
@@ -609,32 +593,8 @@ export function simulateFullShot(clubName, power, shape, golferStats, terrain = 
 }
 
 // Export for use in other modules
-export { gaussianRandom, YARDS_TO_METERS, METERS_TO_YARDS };
+export { YARDS_TO_METERS, METERS_TO_YARDS };
 
-
-/**
- * Get club difficulty multiplier for lie effects
- * Long clubs are harder to hit from bad lies
- */
-function getClubLieDifficulty(clubName) {
-    const clubDifficulty = {
-        'Driver': 1.0,
-        '3 Wood': 0.9,
-        '5 Wood': 0.8,
-        '4 Iron': 0.7,
-        '5 Iron': 0.6,
-        '6 Iron': 0.5,
-        '7 Iron': 0.4,
-        '8 Iron': 0.3,
-        '9 Iron': 0.2,
-        'PW': 0.15,
-        'GW': 0.1,
-        'SW': 0.05,
-        'LW': 0.1,
-        'Putter': 0
-    };
-    return clubDifficulty[clubName] || 0.5;
-}
 
 /**
  * Apply lie effects to launch conditions

@@ -24,12 +24,15 @@ export class CourseData {
         // Sprinkler heads stored globally - yardage markers for caddies
         this.sprinklerHeads = [];
         
+        // Measure points stored globally - custom yardage reference points
+        this.measurePoints = [];
+        
         // Hole details - just positioning info, not terrain
         this.holes = [];
         
         // Elevation grid - covers entire course bounds
-        // Grid resolution: 1 cell = 5 world units = 20 yards
-        this.elevationGridSize = 5;
+        // Grid resolution: 1 cell = 2 world units = 8 yards
+        this.elevationGridSize = 2;
         this.initElevationGrid();
         
         // Add first hole
@@ -369,6 +372,18 @@ export class CourseData {
         }
     }
     
+    // Measure point methods - measure points are global
+    addMeasurePoint(measurePoint) {
+        this.expandBoundsIfNeeded(measurePoint.x, measurePoint.y);
+        this.measurePoints.push(measurePoint);
+    }
+    
+    removeMeasurePoint(index) {
+        if (this.measurePoints[index]) {
+            this.measurePoints.splice(index, 1);
+        }
+    }
+    
     // Export/Import
     export() {
         return {
@@ -377,6 +392,7 @@ export class CourseData {
             terrain: this.terrain,
             trees: this.trees,
             sprinklerHeads: this.sprinklerHeads,
+            measurePoints: this.measurePoints,
             elevationGrid: this.elevationGrid,
             holes: this.holes.map(hole => ({
                 number: hole.number,
@@ -404,9 +420,15 @@ export class CourseData {
         // Import sprinkler heads
         this.sprinklerHeads = data.sprinklerHeads || [];
         
+        // Import measure points
+        this.measurePoints = data.measurePoints || [];
+        
         // Import elevation grid
-        if (data.elevationGrid) {
+        if (data.elevationGrid && data.elevationGrid.data && data.elevationGrid.data.length > 0) {
             this.elevationGrid = data.elevationGrid;
+        } else {
+            // Reinitialize grid if data is empty or missing
+            this.initElevationGrid();
         }
         
         // Import hole details

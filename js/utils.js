@@ -8,8 +8,8 @@
 // Scale factor: world units to 3D units (1 world unit = 4 yards)
 export const WORLD_SCALE = 4;
 
-// Conversion: yards to world units
-export const YARDS_TO_WORLD = 1 / 4;
+// Conversion: yards to world units (internal use)
+const YARDS_TO_WORLD = 1 / 4;
 
 // ============================================
 // Math Utilities
@@ -27,6 +27,28 @@ export function clamp(val, min, max) {
  */
 export function smoothstep(t) {
     return t * t * (3 - 2 * t);
+}
+
+/**
+ * Gaussian random number generator using Box-Muller transform
+ * Returns a random number from a standard normal distribution (mean=0, stddev=1)
+ */
+export function gaussianRandom() {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+/**
+ * Seeded random number generator for consistent/reproducible random values
+ * Uses sine-based hash function to generate deterministic pseudo-random numbers
+ * @param {number} seed - The seed value
+ * @returns {number} A pseudo-random number between 0 and 1
+ */
+export function seededRandom(seed) {
+    const x = Math.sin(seed * 9999) * 10000;
+    return x - Math.floor(x);
 }
 
 /**
@@ -251,6 +273,34 @@ export function cubicInterpolate(p0, p1, p2, p3, t) {
 }
 
 /**
+ * Bilinear interpolation on a 2D grid
+ * Matches GPU terrain mesh interpolation for consistent elevation sampling
+ */
+export function bilinearInterpolate(data, x, y, cols, rows) {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const xf = x - xi;
+    const yf = y - yi;
+    
+    // Clamp indices to valid range
+    const x0 = Math.max(0, Math.min(cols - 1, xi));
+    const x1 = Math.max(0, Math.min(cols - 1, xi + 1));
+    const y0 = Math.max(0, Math.min(rows - 1, yi));
+    const y1 = Math.max(0, Math.min(rows - 1, yi + 1));
+    
+    // Get four corner values
+    const v00 = data[y0][x0];
+    const v10 = data[y0][x1];
+    const v01 = data[y1][x0];
+    const v11 = data[y1][x1];
+    
+    // Bilinear interpolation
+    const v0 = v00 + (v10 - v00) * xf;
+    const v1 = v01 + (v11 - v01) * xf;
+    return v0 + (v1 - v0) * yf;
+}
+
+/**
  * Bicubic interpolation on a 2D grid
  */
 export function bicubicInterpolate(data, x, y, cols, rows) {
@@ -282,4 +332,41 @@ export function bicubicInterpolate(data, x, y, cols, rows) {
     
     // Interpolate column
     return cubicInterpolate(row0, row1, row2, row3, yf);
+}
+
+// ============================================
+// Club Utilities
+// ============================================
+
+/**
+ * Get club difficulty multiplier for a given lie
+ * Long clubs are harder to hit from bad lies
+ * @param {string} clubName - Name of the club being used
+ * @param {string} [lieType] - Optional lie type for special handling (e.g., bunker)
+ * @returns {number} Difficulty multiplier (0-1, higher = more difficult)
+ */
+export function getClubLieDifficulty(clubName, lieType) {
+    const clubDifficulty = {
+        'Driver': 1.0,
+        '3 Wood': 0.9,
+        '5 Wood': 0.8,
+        '4 Iron': 0.7,
+        '5 Iron': 0.6,
+        '6 Iron': 0.5,
+        '7 Iron': 0.4,
+        '8 Iron': 0.3,
+        '9 Iron': 0.2,
+        'PW': 0.15,
+        'GW': 0.1,
+        'SW': 0.05,
+        'LW': 0.1,
+        'Putter': 0
+    };
+
+    // Sand wedge is designed for bunkers - no difficulty penalty
+    if (lieType && lieType.includes('bunker') && clubName === 'SW') {
+        return 0;
+    }
+
+    return clubDifficulty[clubName] || 0.5;
 }

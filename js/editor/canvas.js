@@ -15,6 +15,7 @@ export class EditorCanvas {
         this.selectedZone = null;
         this.selectedTree = null;
         this.selectedSprinklerHead = null;
+        this.selectedMeasurePoint = null;
         this.selectedNode = null;
         this.hoveredNode = null;
         this.selectedCentrelinePoint = null;
@@ -33,6 +34,7 @@ export class EditorCanvas {
             trees: true,
             markers: true,
             sprinklers: true,
+            measurePoints: true,
             centreline: true,
             nodes: true
         };
@@ -120,6 +122,7 @@ export class EditorCanvas {
         this.selectedZone = null;
         this.selectedTree = null;
         this.selectedSprinklerHead = null;
+        this.selectedMeasurePoint = null;
         this.selectedNode = null;
         this.selectedCentrelinePoint = null;
     }
@@ -141,6 +144,10 @@ export class EditorCanvas {
         if (this.selectedSprinklerHead !== null) {
             this.courseData.removeSprinklerHead(this.selectedSprinklerHead);
             this.selectedSprinklerHead = null;
+        }
+        if (this.selectedMeasurePoint !== null) {
+            this.courseData.removeMeasurePoint(this.selectedMeasurePoint);
+            this.selectedMeasurePoint = null;
         }
         this.render();
     }
@@ -193,6 +200,11 @@ export class EditorCanvas {
         // Draw sprinkler heads
         if (this.layers.sprinklers) {
             this.drawSprinklerHeads();
+        }
+        
+        // Draw measure points
+        if (this.layers.measurePoints) {
+            this.drawMeasurePoints();
         }
         
         // Draw markers (tee, hole)
@@ -1004,6 +1016,64 @@ export class EditorCanvas {
             const sprinkler = this.courseData.sprinklerHeads[i];
             const dx = worldX - sprinkler.x;
             const dy = worldY - sprinkler.y;
+            if (dx * dx + dy * dy < 4) { // 2 world unit radius
+                return i;
+            }
+        }
+        return -1;
+    }
+    
+    drawMeasurePoints() {
+        const ctx = this.ctx;
+        
+        // Draw all global measure points
+        this.courseData.measurePoints.forEach((measure, index) => {
+            const screen = this.worldToScreen(measure.x, measure.y);
+            const isSelected = this.selectedMeasurePoint === index;
+            
+            // Draw measure point as a diamond shape
+            const size = isSelected ? 8 : 6;
+            
+            // Outer ring (selection indicator)
+            if (isSelected) {
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(screen.x, screen.y - size - 3);
+                ctx.lineTo(screen.x + size + 3, screen.y);
+                ctx.lineTo(screen.x, screen.y + size + 3);
+                ctx.lineTo(screen.x - size - 3, screen.y);
+                ctx.closePath();
+                ctx.stroke();
+            }
+            
+            // Main diamond - orange fill
+            ctx.fillStyle = '#ff8c00';
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(screen.x, screen.y - size);
+            ctx.lineTo(screen.x + size, screen.y);
+            ctx.lineTo(screen.x, screen.y + size);
+            ctx.lineTo(screen.x - size, screen.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            // Inner dot for visibility
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(screen.x, screen.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+    
+    hitTestMeasurePoint(worldX, worldY) {
+        // Test global measure points
+        for (let i = this.courseData.measurePoints.length - 1; i >= 0; i--) {
+            const measure = this.courseData.measurePoints[i];
+            const dx = worldX - measure.x;
+            const dy = worldY - measure.y;
             if (dx * dx + dy * dy < 4) { // 2 world unit radius
                 return i;
             }

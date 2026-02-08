@@ -77,6 +77,17 @@ export class CodeGenerator {
         lines.push(`    ],`);
         lines.push('');
         
+        // Measure points - global
+        lines.push(`    // ========== MEASURE POINTS ==========`);
+        lines.push(`    measurePoints: [`);
+        const measurePoints = data.measurePoints || [];
+        measurePoints.forEach((measure, mIndex) => {
+            const comma = mIndex === measurePoints.length - 1 ? '' : ',';
+            lines.push(`        { x: ${this.round(measure.x)}, y: ${this.round(measure.y)} }${comma}`);
+        });
+        lines.push(`    ],`);
+        lines.push('');
+        
         // Hole details - just positioning info
         lines.push(`    // ========== HOLE DETAILS ==========`);
         lines.push(`    holes: [`);

@@ -1,4 +1,6 @@
 // Club data - scratch golfer carry distances
+import { gaussianRandom } from './utils.js';
+
 export const clubs = [
     { name: 'Driver', yards: 280 },
     { name: '3 Wood', yards: 250 },
@@ -19,13 +21,8 @@ export const clubs = [
 // Clubs without putter (for shot history/yardage calculations)
 export const shotClubs = clubs.filter(c => c.name !== 'Putter');
 
-// Utility functions
-export function gaussianRandom() {
-    let u = 0, v = 0;
-    while (u === 0) u = Math.random();
-    while (v === 0) v = Math.random();
-    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-}
+// Re-export gaussianRandom for backward compatibility
+export { gaussianRandom };
 
 export function rollMissType(missPattern) {
     const total = Object.values(missPattern).reduce((a, b) => a + b, 0);

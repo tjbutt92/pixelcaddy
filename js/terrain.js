@@ -1,5 +1,5 @@
 // Terrain types and their properties
-import { isPointInPolygon, cubicInterpolate, bicubicInterpolate, lineSegmentIntersect } from './utils.js';
+import { isPointInPolygon, bilinearInterpolate, lineSegmentIntersect, distanceToSegment } from './utils.js';
 
 export const TerrainType = {
     TEE: 'tee',
@@ -168,8 +168,9 @@ export function getElevationAt(hole, x, y) {
     const gridX = ((x - bounds.minX) / rangeX) * (cols - 1);
     const gridY = ((y - bounds.minY) / rangeY) * (rows - 1);
     
-    // Get base elevation from grid
-    let elevation = bicubicInterpolate(data, gridX, gridY, cols, rows);
+    // Get base elevation from grid using bilinear interpolation
+    // (matches GPU terrain mesh interpolation for consistent positioning)
+    let elevation = bilinearInterpolate(data, gridX, gridY, cols, rows);
     
     // Auto-dip for bunkers - check if point is in a bunker and apply depression
     const bunkerDip = getBunkerDip(hole, x, y);
@@ -311,7 +312,7 @@ function estimatePolygonDistFromEdge(x, y, points, centroid) {
     for (let i = 0; i < points.length; i++) {
         const p1 = points[i];
         const p2 = points[(i + 1) % points.length];
-        const dist = pointToSegmentDistance(x, y, p1[0], p1[1], p2[0], p2[1]);
+        const dist = distanceToSegment(x, y, p1[0], p1[1], p2[0], p2[1]);
         minDistToEdge = Math.min(minDistToEdge, dist);
     }
     
@@ -325,25 +326,6 @@ function estimatePolygonDistFromEdge(x, y, points, centroid) {
     
     // Return normalized distance (0 at edge, 1 at center)
     return Math.min(1, minDistToEdge / (maxDist * 0.5));
-}
-
-// Calculate distance from point to line segment
-function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const lengthSq = dx * dx + dy * dy;
-    
-    if (lengthSq === 0) {
-        return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
-    }
-    
-    let t = ((px - x1) * dx + (py - y1) * dy) / lengthSq;
-    t = Math.max(0, Math.min(1, t));
-    
-    const nearestX = x1 + t * dx;
-    const nearestY = y1 + t * dy;
-    
-    return Math.sqrt((px - nearestX) ** 2 + (py - nearestY) ** 2);
 }
 
 export function getElevationChange(hole, fromX, fromY, toX, toY) {
@@ -435,6 +417,25 @@ function findCentrelineZoneIntersection(centreline, zone, findFront = false) {
     
     intersections.sort((a, b) => a.dist - b.dist);
     return findFront ? intersections[0] : intersections[intersections.length - 1];
+}
+
+// Find the front of tee box position (where centreline exits tee box toward hole)
+export function findTeeFront(hole) {
+    const centreline = hole.centreline;
+    
+    if (centreline && centreline.length >= 2 && hole.zones) {
+        const teeZone = hole.zones.find(z => z.terrain === TerrainType.TEE);
+        if (teeZone) {
+            // findFront=false to get the exit point (front of tee toward hole)
+            const intersection = findCentrelineZoneIntersection(centreline, teeZone, false);
+            if (intersection) {
+                return intersection;
+            }
+        }
+    }
+    
+    // Fallback to tee marker position
+    return hole.tee ? { x: hole.tee.x, y: hole.tee.y } : null;
 }
 
 function findLineRectIntersections(p1, p2, rect) {

@@ -179,6 +179,10 @@ export class ToolManager {
                     this.placeSprinklerHead(world);
                     break;
                     
+                case 'measure':
+                    this.placeMeasurePoint(world);
+                    break;
+                    
                 case 'elevation-up':
                 case 'elevation-down':
                 case 'elevation-smooth':
@@ -402,6 +406,20 @@ export class ToolManager {
             this.canvas.selectedZone = null;
             this.canvas.selectedTree = null;
             this.canvas.selectedSprinklerHead = sprinklerIndex;
+            this.canvas.selectedMeasurePoint = null;
+            this.canvas.selectedNode = null;
+            this.canvas.render();
+            this.updateSelectionProps();
+            return;
+        }
+        
+        // Check for measure point hit (global measure points)
+        const measureIndex = this.canvas.hitTestMeasurePoint(world.x, world.y);
+        if (measureIndex >= 0) {
+            this.canvas.selectedZone = null;
+            this.canvas.selectedTree = null;
+            this.canvas.selectedSprinklerHead = null;
+            this.canvas.selectedMeasurePoint = measureIndex;
             this.canvas.selectedNode = null;
             this.canvas.render();
             this.updateSelectionProps();
@@ -414,6 +432,7 @@ export class ToolManager {
             this.canvas.selectedZone = null;
             this.canvas.selectedTree = treeIndex;
             this.canvas.selectedSprinklerHead = null;
+            this.canvas.selectedMeasurePoint = null;
             this.canvas.selectedNode = null;
             this.canvas.render();
             this.updateSelectionProps();
@@ -426,6 +445,7 @@ export class ToolManager {
             this.canvas.selectedZone = zoneIndex;
             this.canvas.selectedTree = null;
             this.canvas.selectedSprinklerHead = null;
+            this.canvas.selectedMeasurePoint = null;
             this.canvas.selectedNode = null;
             this.canvas.render();
             this.updateSelectionProps();
@@ -735,6 +755,20 @@ export class ToolManager {
         this.canvas.render();
     }
     
+    placeMeasurePoint(world) {
+        const x = this.snapToGrid(world.x);
+        const y = this.snapToGrid(world.y);
+        
+        const measurePoint = {
+            x: x,
+            y: y
+        };
+        
+        // Add to global measure points array
+        this.courseData.addMeasurePoint(measurePoint);
+        this.canvas.render();
+    }
+    
     updateSelectionProps() {
         const propsDiv = document.getElementById('selection-props');
         
@@ -838,6 +872,30 @@ export class ToolManager {
                     <div class="prop-row">
                         <span class="prop-label">Position:</span>
                         <span class="prop-value">${Math.round(sprinkler.x * WORLD_TO_YARDS)}y × ${Math.round(sprinkler.y * WORLD_TO_YARDS)}y</span>
+                    </div>
+                `;
+            }
+        } else if (this.canvas.selectedMeasurePoint !== null) {
+            const measure = this.courseData.measurePoints[this.canvas.selectedMeasurePoint];
+            
+            if (measure) {
+                const WORLD_TO_YARDS = 4;
+                propsDiv.innerHTML = `
+                    <div class="prop-row">
+                        <span class="prop-label">Type:</span>
+                        <span class="prop-value">Measure Point</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">X:</span>
+                        <span class="prop-value">${measure.x.toFixed(1)}</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">Y:</span>
+                        <span class="prop-value">${measure.y.toFixed(1)}</span>
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">Position:</span>
+                        <span class="prop-value">${Math.round(measure.x * WORLD_TO_YARDS)}y × ${Math.round(measure.y * WORLD_TO_YARDS)}y</span>
                     </div>
                 `;
             }

@@ -45,7 +45,7 @@ body {
     padding: 6px 10px;
     background: #1a1a2e;
     border: 1px solid #3a3a5a;
-    border-radius: 4px;
+    border-radius: 0;
     color: #fff;
     font-size: 13px;
 }
@@ -211,7 +211,7 @@ body {
     padding: 4px;
     background: #1a1a2e;
     border: 1px solid #3a3a5a;
-    border-radius: 3px;
+    border-radius: 0;
     color: #fff;
 }
 
@@ -305,7 +305,7 @@ body {
     padding: 6px;
     background: #1a1a2e;
     border: 1px solid #3a3a5a;
-    border-radius: 4px;
+    border-radius: 0;
     color: #fff;
     font-size: 12px;
 }
@@ -444,7 +444,7 @@ body {
     padding: 3px 6px;
     background: #1a1a2e;
     border: 1px solid #3a3a5a;
-    border-radius: 3px;
+    border-radius: 0;
     color: #fff;
     font-size: 11px;
 }

@@ -1,6 +1,8 @@
 // Tree types and rendering for golf course
 import * as THREE from 'three';
 import { getElevationAt, getTerrainAt, TerrainType } from './terrain.js';
+import { seededRandom } from './utils.js';
+import { THEME_COLORS } from './theme-colors.js';
 
 // Invalid terrain for tree placement
 const INVALID_TREE_TERRAIN = [
@@ -40,10 +42,10 @@ export const TreeType = {
     DECIDUOUS_3: 'deciduous_3'
 };
 
-// Color palettes
-const PINE_GREENS = ['#1a4d1a', '#1b5e1b', '#2d5a27', '#1f4a1f'];
-const DECIDUOUS_GREENS = ['#2d5a27', '#3d6b35', '#4a7c43', '#2a6b2a'];
-const TRUNK_BROWNS = ['#4e342e', '#5d4037', '#6d4c41', '#3e2723'];
+// Color palettes using centralized theme colors
+const PINE_GREENS = [THEME_COLORS.pineGreen1, THEME_COLORS.pineGreen2, THEME_COLORS.pineGreen3, THEME_COLORS.pineGreen4];
+const DECIDUOUS_GREENS = [THEME_COLORS.deciduousGreen1, THEME_COLORS.deciduousGreen2, THEME_COLORS.deciduousGreen3, THEME_COLORS.deciduousGreen4];
+const TRUNK_BROWNS = [THEME_COLORS.trunkBrown1, THEME_COLORS.trunkBrown2, THEME_COLORS.trunkBrown3, THEME_COLORS.trunkBrown4];
 
 export const treeProperties = {
     // Tall pines - very tall, sparse crown at top
@@ -96,11 +98,8 @@ export const treeProperties = {
     }
 };
 
-// Seeded random for consistent tree generation
-function seededRandom(seed) {
-    const x = Math.sin(seed * 9999) * 10000;
-    return x - Math.floor(x);
-}
+// Scale factor: world units to yards (same as world.js)
+const WORLD_TO_YARDS = 4;
 
 // Check if a point collides with any tree
 // Returns collision info with hitType: 'trunk' or 'foliage'
@@ -161,9 +160,6 @@ export function checkTreeCollision(hole, x, y, ballHeight) {
     return null;
 }
 
-// Scale factor: world units to yards (same as world.js)
-const WORLD_TO_YARDS = 4;
-
 // Create 3D tree mesh
 export function createTree3D(tree, holeData, scene) {
     const props = treeProperties[tree.type];
@@ -217,15 +213,15 @@ function createTallPine(group, height, canopyRadius, props, foliageColor, trunkC
     const trunkHeight = height * props.trunkRatio;
     const trunkRadius = 0.3 + seededRandom(seed + 10) * 0.15;
     
-    // Main trunk - tapers toward top
-    const trunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.4, trunkRadius, height * 0.95, 8);
-    const trunkMat = new THREE.MeshLambertMaterial({ color: trunkColor });
+    // Main trunk - tapers toward top (low-poly for pixelated look)
+    const trunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.4, trunkRadius, height * 0.95, 4);
+    const trunkMat = new THREE.MeshLambertMaterial({ color: trunkColor, flatShading: true });
     const trunk = new THREE.Mesh(trunkGeom, trunkMat);
     trunk.position.y = height * 0.475;
     trunk.castShadow = true;
     group.add(trunk);
     
-    const foliageMat = new THREE.MeshLambertMaterial({ color: foliageColor });
+    const foliageMat = new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true });
     
     // Sparse branches at top - irregular clusters
     const branchCount = 4 + Math.floor(seededRandom(seed + 20) * 4);
@@ -239,8 +235,8 @@ function createTallPine(group, height, canopyRadius, props, foliageColor, trunkC
         const branchLength = canopyRadius * (0.5 + seededRandom(seed + 50 + i) * 0.8);
         const branchAngle = 0.2 + seededRandom(seed + 60 + i) * 0.4; // Slight upward angle
         
-        // Branch stem
-        const branchGeom = new THREE.CylinderGeometry(0.05, 0.1, branchLength, 4);
+        // Branch stem (low-poly)
+        const branchGeom = new THREE.CylinderGeometry(0.05, 0.1, branchLength, 3);
         const branch = new THREE.Mesh(branchGeom, trunkMat);
         branch.position.set(
             Math.cos(angle) * branchLength * 0.4,
@@ -251,11 +247,11 @@ function createTallPine(group, height, canopyRadius, props, foliageColor, trunkC
         branch.rotation.x = Math.sin(angle) * (Math.PI / 2 - branchAngle);
         group.add(branch);
         
-        // Foliage cluster at branch end - irregular shape
+        // Foliage cluster at branch end - low-poly for pixelated look
         const clusterCount = 2 + Math.floor(seededRandom(seed + 70 + i) * 3);
         for (let j = 0; j < clusterCount; j++) {
             const clusterSize = canopyRadius * (0.3 + seededRandom(seed + 80 + i * 10 + j) * 0.4);
-            const clusterGeom = new THREE.SphereGeometry(clusterSize, 6, 5);
+            const clusterGeom = new THREE.IcosahedronGeometry(clusterSize, 0);
             const cluster = new THREE.Mesh(clusterGeom, foliageMat);
             cluster.position.set(
                 Math.cos(angle) * branchLength * (0.7 + seededRandom(seed + 90 + i * 10 + j) * 0.4),
@@ -268,16 +264,16 @@ function createTallPine(group, height, canopyRadius, props, foliageColor, trunkC
         }
     }
     
-    // Top tuft with trunk extension
+    // Top tuft with trunk extension (low-poly)
     const topSize = canopyRadius * 0.6;
     
     // Add trunk to top tuft
-    const topTrunkGeom = new THREE.CylinderGeometry(0.03, 0.06, topSize * 1.5, 4);
+    const topTrunkGeom = new THREE.CylinderGeometry(0.03, 0.06, topSize * 1.5, 3);
     const topTrunk = new THREE.Mesh(topTrunkGeom, trunkMat);
     topTrunk.position.y = height - topSize * 0.8;
     group.add(topTrunk);
     
-    const topGeom = new THREE.SphereGeometry(topSize, 6, 5);
+    const topGeom = new THREE.IcosahedronGeometry(topSize, 0);
     const topCluster = new THREE.Mesh(topGeom, foliageMat);
     topCluster.position.y = height - topSize * 0.3;
     topCluster.scale.y = 0.7;
@@ -290,15 +286,15 @@ function createShortPine(group, height, canopyRadius, props, foliageColor, trunk
     const trunkHeight = height * props.trunkRatio;
     const trunkRadius = 0.25 + seededRandom(seed + 10) * 0.1;
     
-    // Main trunk - tapers toward top
-    const trunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.5, trunkRadius, height * 0.9, 8);
-    const trunkMat = new THREE.MeshLambertMaterial({ color: trunkColor });
+    // Main trunk - tapers toward top (low-poly)
+    const trunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.5, trunkRadius, height * 0.9, 4);
+    const trunkMat = new THREE.MeshLambertMaterial({ color: trunkColor, flatShading: true });
     const trunk = new THREE.Mesh(trunkGeom, trunkMat);
     trunk.position.y = height * 0.45;
     trunk.castShadow = true;
     group.add(trunk);
     
-    const foliageMat = new THREE.MeshLambertMaterial({ color: foliageColor });
+    const foliageMat = new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true });
     
     // More branches starting lower on the tree
     const branchCount = 6 + Math.floor(seededRandom(seed + 20) * 4);
@@ -312,8 +308,8 @@ function createShortPine(group, height, canopyRadius, props, foliageColor, trunk
         const branchLength = canopyRadius * (0.5 + seededRandom(seed + 50 + i) * 0.7);
         const branchAngle = 0.15 + seededRandom(seed + 60 + i) * 0.35;
         
-        // Branch stem
-        const branchGeom = new THREE.CylinderGeometry(0.04, 0.08, branchLength, 4);
+        // Branch stem (low-poly)
+        const branchGeom = new THREE.CylinderGeometry(0.04, 0.08, branchLength, 3);
         const branch = new THREE.Mesh(branchGeom, trunkMat);
         branch.position.set(
             Math.cos(angle) * branchLength * 0.4,
@@ -324,11 +320,11 @@ function createShortPine(group, height, canopyRadius, props, foliageColor, trunk
         branch.rotation.x = Math.sin(angle) * (Math.PI / 2 - branchAngle);
         group.add(branch);
         
-        // Foliage clusters at branch end
+        // Foliage clusters at branch end (low-poly)
         const clusterCount = 2 + Math.floor(seededRandom(seed + 70 + i) * 2);
         for (let j = 0; j < clusterCount; j++) {
             const clusterSize = canopyRadius * (0.3 + seededRandom(seed + 80 + i * 10 + j) * 0.35);
-            const clusterGeom = new THREE.SphereGeometry(clusterSize, 6, 5);
+            const clusterGeom = new THREE.IcosahedronGeometry(clusterSize, 0);
             const cluster = new THREE.Mesh(clusterGeom, foliageMat);
             cluster.position.set(
                 Math.cos(angle) * branchLength * (0.65 + seededRandom(seed + 90 + i * 10 + j) * 0.4),
@@ -341,16 +337,16 @@ function createShortPine(group, height, canopyRadius, props, foliageColor, trunk
         }
     }
     
-    // Top tuft with trunk extension
+    // Top tuft with trunk extension (low-poly)
     const topSize = canopyRadius * 0.5;
     
     // Add trunk to top tuft
-    const topTrunkGeom = new THREE.CylinderGeometry(0.03, 0.05, topSize * 1.2, 4);
+    const topTrunkGeom = new THREE.CylinderGeometry(0.03, 0.05, topSize * 1.2, 3);
     const topTrunk = new THREE.Mesh(topTrunkGeom, trunkMat);
     topTrunk.position.y = height - topSize * 0.9;
     group.add(topTrunk);
     
-    const topGeom = new THREE.SphereGeometry(topSize, 6, 5);
+    const topGeom = new THREE.IcosahedronGeometry(topSize, 0);
     const topCluster = new THREE.Mesh(topGeom, foliageMat);
     topCluster.position.y = height - topSize * 0.4;
     topCluster.scale.y = 0.65;
@@ -363,11 +359,11 @@ function createDeciduousTree(group, height, canopyRadius, props, foliageColor, t
     const trunkHeight = height * props.trunkRatio;
     const trunkRadius = 0.4 + seededRandom(seed + 10) * 0.2;
     
-    const trunkMat = new THREE.MeshLambertMaterial({ color: trunkColor });
-    const foliageMat = new THREE.MeshLambertMaterial({ color: foliageColor });
+    const trunkMat = new THREE.MeshLambertMaterial({ color: trunkColor, flatShading: true });
+    const foliageMat = new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true });
     
-    // Main trunk
-    const trunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.7, trunkRadius, trunkHeight, 8);
+    // Main trunk (low-poly)
+    const trunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.7, trunkRadius, trunkHeight, 4);
     const trunk = new THREE.Mesh(trunkGeom, trunkMat);
     trunk.position.y = trunkHeight / 2;
     trunk.castShadow = true;
@@ -383,8 +379,8 @@ function createDeciduousTree(group, height, canopyRadius, props, foliageColor, t
         const branchLen = canopyRadius * (0.6 + seededRandom(seed + 50 + i) * 0.5);
         const upAngle = 0.4 + seededRandom(seed + 60 + i) * 0.4;
         
-        // Main branch
-        const branchGeom = new THREE.CylinderGeometry(trunkRadius * 0.2, trunkRadius * 0.4, branchLen, 6);
+        // Main branch (low-poly)
+        const branchGeom = new THREE.CylinderGeometry(trunkRadius * 0.2, trunkRadius * 0.4, branchLen, 3);
         const branch = new THREE.Mesh(branchGeom, trunkMat);
         const bx = Math.cos(angle) * branchLen * 0.4;
         const bz = Math.sin(angle) * branchLen * 0.4;
@@ -402,7 +398,7 @@ function createDeciduousTree(group, height, canopyRadius, props, foliageColor, t
             const subY = by + seededRandom(seed + 100 + i * 10 + j) * branchLen * 0.4;
             const subUp = 0.2 + seededRandom(seed + 110 + i * 10 + j) * 0.5;
             
-            const subGeom = new THREE.CylinderGeometry(trunkRadius * 0.08, trunkRadius * 0.15, subLen, 4);
+            const subGeom = new THREE.CylinderGeometry(trunkRadius * 0.08, trunkRadius * 0.15, subLen, 3);
             const sub = new THREE.Mesh(subGeom, trunkMat);
             const sx = bx + Math.cos(subAngle) * subLen * 0.4;
             const sz = bz + Math.sin(subAngle) * subLen * 0.4;
@@ -411,9 +407,9 @@ function createDeciduousTree(group, height, canopyRadius, props, foliageColor, t
             sub.rotation.x = Math.sin(subAngle) * (Math.PI / 2 - subUp);
             group.add(sub);
             
-            // Foliage cluster at sub-branch end
+            // Foliage cluster at sub-branch end (low-poly)
             const clusterSize = canopyRadius * (0.35 + seededRandom(seed + 120 + i * 10 + j) * 0.3);
-            const clusterGeom = new THREE.SphereGeometry(clusterSize, 7, 6);
+            const clusterGeom = new THREE.IcosahedronGeometry(clusterSize, 0);
             const cluster = new THREE.Mesh(clusterGeom, foliageMat);
             cluster.position.set(
                 sx + Math.cos(subAngle) * subLen * 0.5,
@@ -429,9 +425,9 @@ function createDeciduousTree(group, height, canopyRadius, props, foliageColor, t
             group.add(cluster);
         }
         
-        // Main foliage cluster at branch end
+        // Main foliage cluster at branch end (low-poly)
         const mainClusterSize = canopyRadius * (0.5 + seededRandom(seed + 160 + i) * 0.3);
-        const mainClusterGeom = new THREE.SphereGeometry(mainClusterSize, 8, 6);
+        const mainClusterGeom = new THREE.IcosahedronGeometry(mainClusterSize, 0);
         const mainCluster = new THREE.Mesh(mainClusterGeom, foliageMat);
         mainCluster.position.set(
             Math.cos(angle) * branchLen * 0.85,
@@ -443,17 +439,17 @@ function createDeciduousTree(group, height, canopyRadius, props, foliageColor, t
         group.add(mainCluster);
     }
     
-    // Central top cluster with trunk extension
+    // Central top cluster with trunk extension (low-poly)
     const topSize = canopyRadius * 0.6;
     
     // Add trunk extension to top
-    const topTrunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.3, trunkRadius * 0.5, height - trunkHeight, 6);
+    const topTrunkGeom = new THREE.CylinderGeometry(trunkRadius * 0.3, trunkRadius * 0.5, height - trunkHeight, 4);
     const topTrunk = new THREE.Mesh(topTrunkGeom, trunkMat);
     topTrunk.position.y = trunkHeight + (height - trunkHeight) / 2;
     topTrunk.castShadow = true;
     group.add(topTrunk);
     
-    const topGeom = new THREE.SphereGeometry(topSize, 8, 6);
+    const topGeom = new THREE.IcosahedronGeometry(topSize, 0);
     const topCluster = new THREE.Mesh(topGeom, foliageMat);
     topCluster.position.y = height - topSize * 0.5;
     topCluster.scale.y = 0.8;
@@ -507,40 +503,40 @@ export function renderTreeOnMap(tree, container, worldToPercentFn) {
     if (category === 'tall_pine') {
         // Tall pine birds eye - sparse irregular clusters around small trunk
         el.innerHTML = `<svg viewBox="0 0 40 40" style="width:100%;height:100%;">
-            <circle cx="20" cy="20" r="2" fill="#5d4037"/>
-            <ellipse cx="${14 + r1 * 6}" cy="${10 + r2 * 5}" rx="${5 + r3 * 2}" ry="${4 + r4 * 2}" fill="#1a4d1a" opacity="0.9"/>
-            <ellipse cx="${24 + r2 * 4}" cy="${12 + r1 * 4}" rx="${4 + r4 * 2}" ry="${5 + r3 * 2}" fill="#1b5e1b" opacity="0.9"/>
-            <ellipse cx="${26 + r3 * 4}" cy="${26 + r4 * 4}" rx="${5 + r1 * 2}" ry="${4 + r2 * 2}" fill="#2d5a27" opacity="0.9"/>
-            <ellipse cx="${10 + r4 * 4}" cy="${25 + r3 * 5}" rx="${4 + r2 * 2}" ry="${5 + r1 * 2}" fill="#1f4a1f" opacity="0.9"/>
-            <ellipse cx="20" cy="20" rx="${6 + r5 * 2}" ry="${5 + r1 * 2}" fill="#1a4d1a" opacity="0.85"/>
+            <circle cx="20" cy="20" r="2" fill="${THEME_COLORS.trunkBrown2}"/>
+            <ellipse cx="${14 + r1 * 6}" cy="${10 + r2 * 5}" rx="${5 + r3 * 2}" ry="${4 + r4 * 2}" fill="${THEME_COLORS.pineGreen1}" opacity="0.9"/>
+            <ellipse cx="${24 + r2 * 4}" cy="${12 + r1 * 4}" rx="${4 + r4 * 2}" ry="${5 + r3 * 2}" fill="${THEME_COLORS.pineGreen2}" opacity="0.9"/>
+            <ellipse cx="${26 + r3 * 4}" cy="${26 + r4 * 4}" rx="${5 + r1 * 2}" ry="${4 + r2 * 2}" fill="${THEME_COLORS.pineGreen3}" opacity="0.9"/>
+            <ellipse cx="${10 + r4 * 4}" cy="${25 + r3 * 5}" rx="${4 + r2 * 2}" ry="${5 + r1 * 2}" fill="${THEME_COLORS.pineGreen4}" opacity="0.9"/>
+            <ellipse cx="20" cy="20" rx="${6 + r5 * 2}" ry="${5 + r1 * 2}" fill="${THEME_COLORS.pineGreen1}" opacity="0.85"/>
         </svg>`;
     } else if (category === 'short_pine') {
         // Short pine birds eye - denser, more overlapping clusters
         el.innerHTML = `<svg viewBox="0 0 40 40" style="width:100%;height:100%;">
-            <circle cx="20" cy="20" r="1.5" fill="#5d4037"/>
-            <ellipse cx="${12 + r1 * 4}" cy="${12 + r2 * 4}" rx="${6 + r3 * 2}" ry="${5 + r4 * 2}" fill="#1a4d1a" opacity="0.85"/>
-            <ellipse cx="${26 + r2 * 3}" cy="${13 + r1 * 3}" rx="${5 + r4 * 2}" ry="${6 + r3 * 2}" fill="#1b5e1b" opacity="0.85"/>
-            <ellipse cx="${27 + r3 * 3}" cy="${26 + r4 * 3}" rx="${6 + r1 * 2}" ry="${5 + r2 * 2}" fill="#2d5a27" opacity="0.85"/>
-            <ellipse cx="${11 + r4 * 3}" cy="${27 + r3 * 3}" rx="${5 + r2 * 2}" ry="${6 + r1 * 2}" fill="#1f4a1f" opacity="0.85"/>
-            <ellipse cx="${16 + r5 * 3}" cy="${18 + r1 * 3}" rx="${5 + r2 * 1.5}" ry="${4 + r3 * 1.5}" fill="#1a4d1a" opacity="0.9"/>
-            <ellipse cx="${24 + r1 * 3}" cy="${22 + r5 * 3}" rx="${4 + r3 * 1.5}" ry="${5 + r4 * 1.5}" fill="#1b5e1b" opacity="0.9"/>
-            <ellipse cx="20" cy="20" rx="${7 + r4 * 2}" ry="${7 + r5 * 2}" fill="#2d5a27" opacity="0.8"/>
+            <circle cx="20" cy="20" r="1.5" fill="${THEME_COLORS.trunkBrown2}"/>
+            <ellipse cx="${12 + r1 * 4}" cy="${12 + r2 * 4}" rx="${6 + r3 * 2}" ry="${5 + r4 * 2}" fill="${THEME_COLORS.pineGreen1}" opacity="0.85"/>
+            <ellipse cx="${26 + r2 * 3}" cy="${13 + r1 * 3}" rx="${5 + r4 * 2}" ry="${6 + r3 * 2}" fill="${THEME_COLORS.pineGreen2}" opacity="0.85"/>
+            <ellipse cx="${27 + r3 * 3}" cy="${26 + r4 * 3}" rx="${6 + r1 * 2}" ry="${5 + r2 * 2}" fill="${THEME_COLORS.pineGreen3}" opacity="0.85"/>
+            <ellipse cx="${11 + r4 * 3}" cy="${27 + r3 * 3}" rx="${5 + r2 * 2}" ry="${6 + r1 * 2}" fill="${THEME_COLORS.pineGreen4}" opacity="0.85"/>
+            <ellipse cx="${16 + r5 * 3}" cy="${18 + r1 * 3}" rx="${5 + r2 * 1.5}" ry="${4 + r3 * 1.5}" fill="${THEME_COLORS.pineGreen1}" opacity="0.9"/>
+            <ellipse cx="${24 + r1 * 3}" cy="${22 + r5 * 3}" rx="${4 + r3 * 1.5}" ry="${5 + r4 * 1.5}" fill="${THEME_COLORS.pineGreen2}" opacity="0.9"/>
+            <ellipse cx="20" cy="20" rx="${7 + r4 * 2}" ry="${7 + r5 * 2}" fill="${THEME_COLORS.pineGreen3}" opacity="0.8"/>
         </svg>`;
     } else {
         // Deciduous birds eye - large rounded canopy with visible branch structure underneath
         el.innerHTML = `<svg viewBox="0 0 40 40" style="width:100%;height:100%;">
-            <line x1="20" y1="20" x2="${8 + r1 * 4}" y2="${10 + r2 * 4}" stroke="#5d4037" stroke-width="1.5" opacity="0.4"/>
-            <line x1="20" y1="20" x2="${30 + r2 * 3}" y2="${12 + r1 * 3}" stroke="#5d4037" stroke-width="1.5" opacity="0.4"/>
-            <line x1="20" y1="20" x2="${28 + r3 * 4}" y2="${28 + r4 * 4}" stroke="#5d4037" stroke-width="1.5" opacity="0.4"/>
-            <line x1="20" y1="20" x2="${10 + r4 * 3}" y2="${30 + r3 * 3}" stroke="#5d4037" stroke-width="1.5" opacity="0.4"/>
-            <circle cx="20" cy="20" r="2" fill="#5d4037"/>
-            <ellipse cx="${10 + r1 * 4}" cy="${11 + r2 * 4}" rx="${7 + r3 * 2}" ry="${6 + r4 * 2}" fill="#2d5a27" opacity="0.85"/>
-            <ellipse cx="${29 + r2 * 3}" cy="${13 + r1 * 3}" rx="${6 + r4 * 2}" ry="${7 + r3 * 2}" fill="#3d6b35" opacity="0.85"/>
-            <ellipse cx="${28 + r3 * 3}" cy="${28 + r4 * 3}" rx="${7 + r1 * 2}" ry="${6 + r2 * 2}" fill="#4a7c43" opacity="0.85"/>
-            <ellipse cx="${11 + r4 * 3}" cy="${29 + r3 * 3}" rx="${6 + r2 * 2}" ry="${7 + r1 * 2}" fill="#2a6b2a" opacity="0.85"/>
-            <ellipse cx="20" cy="20" rx="${9 + r5 * 2}" ry="${9 + r1 * 2}" fill="#3d6b35" opacity="0.8"/>
-            <ellipse cx="${16 + r1 * 2}" cy="${16 + r2 * 2}" rx="${4 + r3}" ry="${4 + r4}" fill="#4a7c43" opacity="0.7"/>
-            <ellipse cx="${24 + r3 * 2}" cy="${24 + r4 * 2}" rx="${4 + r5}" ry="${4 + r1}" fill="#2d5a27" opacity="0.7"/>
+            <line x1="20" y1="20" x2="${8 + r1 * 4}" y2="${10 + r2 * 4}" stroke="${THEME_COLORS.trunkBrown2}" stroke-width="1.5" opacity="0.4"/>
+            <line x1="20" y1="20" x2="${30 + r2 * 3}" y2="${12 + r1 * 3}" stroke="${THEME_COLORS.trunkBrown2}" stroke-width="1.5" opacity="0.4"/>
+            <line x1="20" y1="20" x2="${28 + r3 * 4}" y2="${28 + r4 * 4}" stroke="${THEME_COLORS.trunkBrown2}" stroke-width="1.5" opacity="0.4"/>
+            <line x1="20" y1="20" x2="${10 + r4 * 3}" y2="${30 + r3 * 3}" stroke="${THEME_COLORS.trunkBrown2}" stroke-width="1.5" opacity="0.4"/>
+            <circle cx="20" cy="20" r="2" fill="${THEME_COLORS.trunkBrown2}"/>
+            <ellipse cx="${10 + r1 * 4}" cy="${11 + r2 * 4}" rx="${7 + r3 * 2}" ry="${6 + r4 * 2}" fill="${THEME_COLORS.deciduousGreen1}" opacity="0.85"/>
+            <ellipse cx="${29 + r2 * 3}" cy="${13 + r1 * 3}" rx="${6 + r4 * 2}" ry="${7 + r3 * 2}" fill="${THEME_COLORS.deciduousGreen2}" opacity="0.85"/>
+            <ellipse cx="${28 + r3 * 3}" cy="${28 + r4 * 3}" rx="${7 + r1 * 2}" ry="${6 + r2 * 2}" fill="${THEME_COLORS.deciduousGreen3}" opacity="0.85"/>
+            <ellipse cx="${11 + r4 * 3}" cy="${29 + r3 * 3}" rx="${6 + r2 * 2}" ry="${7 + r1 * 2}" fill="${THEME_COLORS.deciduousGreen4}" opacity="0.85"/>
+            <ellipse cx="20" cy="20" rx="${9 + r5 * 2}" ry="${9 + r1 * 2}" fill="${THEME_COLORS.deciduousGreen2}" opacity="0.8"/>
+            <ellipse cx="${16 + r1 * 2}" cy="${16 + r2 * 2}" rx="${4 + r3}" ry="${4 + r4}" fill="${THEME_COLORS.deciduousGreen3}" opacity="0.7"/>
+            <ellipse cx="${24 + r3 * 2}" cy="${24 + r4 * 2}" rx="${4 + r5}" ry="${4 + r1}" fill="${THEME_COLORS.deciduousGreen1}" opacity="0.7"/>
         </svg>`;
     }
     

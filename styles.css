@@ -2,6 +2,14 @@
    GOLF CADDY GAME - UNIFIED CSS DESIGN SYSTEM
    ============================================ */
 
+/* Local pixel font */
+@font-face {
+    font-family: 'Visitor';
+    src: url('fonts/visitor2.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
 /* CSS Custom Properties - Single source of truth */
 :root {
     /* Colors - Primary */
@@ -41,22 +49,23 @@
     --space-lg: 16px;
     --space-xl: 20px;
     
-    /* Border radius */
-    --radius-sm: 4px;
-    --radius-md: 6px;
-    --radius-lg: 8px;
-    --radius-xl: 16px;
-    --radius-round: 50%;
+    /* Border radius - All set to 0 for pixel theme square corners */
+    --radius-sm: 0;
+    --radius-md: 0;
+    --radius-lg: 0;
+    --radius-xl: 0;
+    --radius-round: 0;
     
-    /* Typography */
-    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --font-size-xs: 9px;
-    --font-size-sm: 11px;
-    --font-size-md: 12px;
-    --font-size-base: 14px;
-    --font-size-lg: 16px;
-    --font-size-xl: 18px;
-    --font-size-display: 48px;
+    /* Typography - Pixel Font */
+    --pixel-font: "Visitor", monospace;
+    --font-family: var(--pixel-font);
+    --font-size-xs: 12px;
+    --font-size-sm: 14px;
+    --font-size-md: 16px;
+    --font-size-base: 18px;
+    --font-size-lg: 20px;
+    --font-size-xl: 24px;
+    --font-size-display: 64px;
     
     /* Transitions */
     --transition-fast: 0.15s ease;
@@ -268,7 +277,7 @@ body {
     width: 100%;
     max-width: 400px;
     max-height: 70vh;
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    border-radius: 0;
     padding: var(--space-xl);
     overflow-y: auto;
 }
@@ -351,7 +360,7 @@ body {
 .power-slider::-webkit-slider-track {
     height: 8px;
     background: var(--color-bg-secondary);
-    border-radius: var(--radius-sm);
+    border-radius: 0;
 }
 
 .power-slider::-webkit-slider-thumb {
@@ -359,7 +368,7 @@ body {
     width: 28px;
     height: 28px;
     background: var(--color-accent-green);
-    border-radius: var(--radius-round);
+    border-radius: 0;
     cursor: pointer;
     margin-top: -10px;
 }
@@ -367,14 +376,14 @@ body {
 .power-slider::-moz-range-track {
     height: 8px;
     background: var(--color-bg-secondary);
-    border-radius: var(--radius-sm);
+    border-radius: 0;
 }
 
 .power-slider::-moz-range-thumb {
     width: 28px;
     height: 28px;
     background: var(--color-accent-green);
-    border-radius: var(--radius-round);
+    border-radius: 0;
     cursor: pointer;
     border: none;
 }
@@ -422,7 +431,105 @@ body {
     margin-bottom: var(--space-md);
 }
 
-.yardage-tabs { display: flex; gap: var(--space-md); align-items: center; }
+.yardage-header-compact {
+    text-align: center;
+    padding: var(--space-xs) 0;
+    margin-bottom: var(--space-xs);
+}
+
+.hole-info-compact {
+    color: var(--color-accent-green);
+    font-size: var(--font-size-md);
+    font-weight: 500;
+}
+
+/* Yardage Book Overlay Modal */
+.yardage-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--color-bg-primary);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 0;
+}
+
+/* Tab Bar Container */
+.yardage-tabs {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    background-color: var(--color-bg-secondary);
+    padding: var(--space-sm) var(--space-sm);
+    border-bottom: 1px solid var(--color-bg-tertiary);
+    flex-shrink: 0;
+}
+
+/* Tab Button Styles */
+.tab-btn {
+    flex: 1;
+    padding: var(--space-md) var(--space-sm);
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    color: var(--color-text-muted);
+    font-family: var(--font-family);
+    font-size: var(--font-size-md);
+    font-weight: 500;
+    cursor: pointer;
+    transition: color var(--transition-fast), background-color var(--transition-fast);
+    position: relative;
+    text-transform: capitalize;
+}
+
+.tab-btn:hover {
+    color: var(--color-text-secondary);
+    background-color: var(--color-bg-tertiary);
+}
+
+.tab-btn:focus {
+    outline: none;
+}
+
+/* Active Tab Indicator */
+.tab-btn.active {
+    color: var(--color-accent-green);
+    background-color: var(--color-bg-tertiary);
+}
+
+.tab-btn.active::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: var(--space-sm);
+    right: var(--space-sm);
+    height: 3px;
+    background-color: var(--color-accent-green);
+    border-radius: 0;
+}
+
+/* Yardage Content Area */
+.yardage-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--color-bg-primary);
+    border-radius: 0;
+}
+
+/* Swipe Indicator */
+.swipe-indicator {
+    text-align: center;
+    padding: var(--space-sm);
+    color: var(--color-text-dim);
+    font-size: var(--font-size-sm);
+    background-color: var(--color-bg-secondary);
+    flex-shrink: 0;
+}
 
 .yardage-close-btn {
     background: none;
@@ -430,8 +537,10 @@ body {
     color: var(--color-text-muted);
     font-size: var(--font-size-lg);
     cursor: pointer;
-    padding: var(--space-xs) var(--space-sm);
-    margin-left: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
 }
 
 .yardage-close-btn:hover { color: var(--color-text-primary); }
@@ -445,7 +554,8 @@ body {
 .yardage-map-hole {
     position: relative;
     width: 100%;
-    height: 450px;
+    height: calc(100vh - 180px);
+    min-height: 400px;
     background-color: #1a3d1a;
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -532,7 +642,7 @@ body {
 
 .yardage-spot-label {
     display: block;
-    font-size: 10px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--color-text-primary);
     background-color: rgba(0, 0, 0, 0.7);
@@ -566,13 +676,13 @@ body {
 .yardage-spot-marker .yardage-spot-label {
     background-color: rgba(255, 255, 255, 0.15);
     border: 1px solid rgba(255, 255, 255, 0.4);
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-base);
 }
 
 .yardage-spot-bunker-carry .yardage-spot-label,
 .yardage-spot-water-carry .yardage-spot-label {
     background-color: rgba(0, 0, 0, 0.6);
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-base);
 }
 
 /* ============================================
@@ -604,13 +714,11 @@ body {
     display: flex;
     flex-direction: column;
     gap: var(--space-md);
-    max-height: 60vh;
-    overflow-y: auto;
 }
 
 .course-section {
     background-color: var(--color-bg-secondary);
-    border-radius: var(--radius-lg);
+    border-radius: 0;
     padding: var(--space-md);
 }
 
@@ -721,7 +829,7 @@ body {
 
 .stat-section {
     background-color: var(--color-bg-secondary);
-    border-radius: var(--radius-lg);
+    border-radius: 0;
     padding: var(--space-md);
 }
 
@@ -769,7 +877,7 @@ body {
 
 .mental-meter-fill {
     height: 100%;
-    background-color: var(--color-accent-green);
+    background-color: var(--color-accent-purple);
     border-radius: var(--radius-sm);
     transition: width var(--transition-normal);
 }
@@ -778,6 +886,9 @@ body {
 .mental-meter.focus .mental-meter-fill { background-color: var(--color-accent-blue); }
 
 .mental-label { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.mental-label.confidence { color: var(--color-accent-purple); }
+.mental-label.pressure { color: var(--color-accent-red); }
+.mental-label.focus { color: var(--color-accent-blue); }
 
 .mental-effects { display: flex; flex-direction: column; gap: var(--space-md); }
 
@@ -814,13 +925,87 @@ body {
 .no-shots { color: var(--color-text-dim); font-size: var(--font-size-md); text-align: center; padding: var(--space-xl); }
 
 /* ============================================
+   SHOT SUMMARY (in Golfer Tab)
+   ============================================ */
+.shot-summary-section {
+    background-color: var(--color-bg-dark);
+    border: 1px solid var(--color-accent-green);
+}
+
+.shot-summary-header {
+    color: var(--color-accent-green);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: var(--space-sm);
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--color-bg-secondary);
+}
+
+.shot-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-xs);
+}
+
+.shot-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.shot-summary-item {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--space-xs) 0;
+}
+
+.shot-summary-label {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+}
+
+.shot-summary-value {
+    color: var(--color-text-primary);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+}
+
+.shot-landing-note {
+    margin-top: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-align: center;
+}
+
+.shot-landing-note.spin-back {
+    background-color: rgba(52, 152, 219, 0.2);
+    color: var(--color-accent-blue);
+}
+
+.shot-landing-note.check-up {
+    background-color: rgba(92, 184, 92, 0.2);
+    color: var(--color-accent-green);
+}
+
+.no-shot-data {
+    color: var(--color-text-dim);
+    font-size: var(--font-size-md);
+    text-align: center;
+    padding: var(--space-lg);
+}
+
+/* ============================================
    CLUBS PAGE - EXPANDABLE LIST
    ============================================ */
 .clubs-page { padding: var(--space-sm) 0; }
 
 .club-expandable {
     background-color: var(--color-bg-secondary);
-    border-radius: var(--radius-lg);
+    border-radius: 0;
     overflow: hidden;
 }
 
@@ -831,9 +1016,9 @@ body {
     cursor: pointer;
 }
 
-.club-header-name { flex: 1; color: var(--color-text-primary); font-size: var(--font-size-base); font-weight: 500; }
-.club-header-yards { color: var(--color-accent-green); font-size: var(--font-size-base); font-weight: 600; margin-right: var(--space-md); min-width: 36px; }
-.club-header-stat { color: var(--color-text-muted); font-size: var(--font-size-base); margin-right: var(--space-sm); min-width: 28px; text-align: right; }
+.club-header-name { flex: 1; color: var(--color-text-primary); font-size: var(--font-size-lg); font-weight: 500; }
+.club-header-yards { color: var(--color-accent-green); font-size: var(--font-size-lg); font-weight: 500; margin-right: var(--space-md); min-width: 40px; }
+.club-header-stat { color: var(--color-text-muted); font-size: var(--font-size-lg); margin-right: var(--space-sm); min-width: 36px; text-align: right; }
 
 .club-details { display: none; padding: 0 var(--space-base, 14px) var(--space-base, 14px); }
 .club-expandable.expanded .club-details { display: block; }
@@ -844,13 +1029,13 @@ body {
 .club-stat {
     flex: 1;
     background-color: var(--color-bg-primary);
-    border-radius: var(--radius-sm);
+    border-radius: 0;
     padding: var(--space-sm) var(--space-md);
     text-align: center;
 }
 
-.club-stat-label { display: block; color: var(--color-text-dim); font-size: var(--font-size-xs); margin-bottom: 2px; }
-.club-stat-value { color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: 500; }
+.club-stat-label { display: block; color: var(--color-text-dim); font-size: var(--font-size-sm); margin-bottom: 2px; }
+.club-stat-value { color: var(--color-text-primary); font-size: var(--font-size-base); font-weight: 500; }
 
 /* ============================================
    MINI DISPERSION MAP
@@ -904,8 +1089,8 @@ body {
     right: -4px;
     top: 50%;
     transform: translateY(-50%);
-    font-size: 8px;
-    color: rgba(255,255,255,0.5);
+    font-size: var(--font-size-sm);
+    color: rgba(255,255,255,0.6);
 }
 
 .mini-label-short,
@@ -913,8 +1098,8 @@ body {
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
-    font-size: var(--font-size-xs);
-    color: rgba(255,255,255,0.4);
+    font-size: var(--font-size-sm);
+    color: rgba(255,255,255,0.5);
 }
 
 .mini-label-short { bottom: var(--space-xs); }
@@ -1011,14 +1196,13 @@ body {
     top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 45, 0.95) 100%);
+    background: rgba(20, 20, 30, 0.95);
     border: 1px solid rgba(92, 184, 92, 0.3);
-    border-radius: var(--radius-lg);
+    border-radius: 0;
     padding: var(--space-md) var(--space-lg);
     z-index: 200;
     min-width: 280px;
     max-width: 350px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     animation: slideDown 0.3s ease-out;
 }
 
@@ -1116,7 +1300,7 @@ body {
     left: 20px;
     background: rgba(0, 0, 0, 0.85);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: var(--radius-lg);
+    border-radius: 0;
     padding: var(--space-md);
     display: flex;
     flex-direction: column;
@@ -1124,7 +1308,6 @@ body {
     gap: var(--space-xs);
     min-width: 70px;
     z-index: 100;
-    backdrop-filter: blur(10px);
 }
 
 .wind-arrow {
@@ -1181,69 +1364,51 @@ body {
 }
 
 .continue-button {
-    background: linear-gradient(135deg, var(--color-accent-green) 0%, #45a049 100%);
+    background: var(--color-accent-green);
     color: var(--color-text-primary);
     border: none;
-    border-radius: var(--radius-xl);
+    border-radius: 0;
     padding: var(--space-lg) var(--space-xl);
     font-size: var(--font-size-lg);
     font-weight: 600;
     cursor: pointer;
     pointer-events: auto;
-    box-shadow: 0 4px 20px rgba(92, 184, 92, 0.4);
-    animation: continueButtonPulse 2s ease-in-out infinite;
-    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    transition: background var(--transition-fast);
     min-width: 150px;
 }
 
 .continue-button:hover {
-    transform: scale(1.05);
-    box-shadow: 0 6px 25px rgba(92, 184, 92, 0.5);
+    background: var(--color-accent-green-hover, #4cae4c);
 }
 
 .continue-button:active {
-    transform: scale(0.98);
-}
-
-@keyframes continueButtonPulse {
-    0%, 100% {
-        box-shadow: 0 4px 20px rgba(92, 184, 92, 0.4);
-    }
-    50% {
-        box-shadow: 0 4px 30px rgba(92, 184, 92, 0.6);
-    }
+    background: var(--color-accent-green-active, #449d44);
 }
 
 
 /* ============================================
-   LIE WINDOW - Bottom Left Display
+   LIE WINDOW - In Left Controls Stack
    ============================================ */
 .lie-window {
-    position: fixed;
-    bottom: 100px;
-    left: 12px;
-    background: rgba(0, 0, 0, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: var(--radius-lg);
+    background-color: var(--color-bg-secondary);
+    border-radius: 0;
     padding: var(--space-sm) var(--space-md);
-    z-index: 100;
-    backdrop-filter: blur(10px);
+    min-width: 60px;
+    width: 60px;
+    border: 2px solid var(--color-text-muted);
+    text-align: center;
 }
 
 .lie-window-content {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
-}
-
-.lie-image {
-    font-size: 24px;
-    line-height: 1;
+    justify-content: center;
 }
 
 .lie-name {
-    font-size: var(--font-size-sm);
-    font-weight: 600;
+    font-family: var(--font-family);
+    font-size: var(--font-size-lg);
+    font-weight: normal;
     color: var(--color-text-primary);
     white-space: nowrap;
 }
@@ -1298,4 +1463,770 @@ body {
     justify-content: space-between;
     font-size: 8px;
     color: var(--color-text-dim);
+}
+
+
+/* ============================================
+   NEW UI LAYOUT - GAME CONTROLS
+   Requirements: 10.1, 10.2, 10.3, 10.5
+   ============================================ */
+
+/* Left-side control stack - Club, Power, Shape buttons stacked vertically */
+.left-controls {
+    position: absolute;
+    left: var(--space-md);
+    bottom: 100px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    z-index: 50;
+}
+
+/* Right-side aim button container */
+.right-controls {
+    position: absolute;
+    right: var(--space-md);
+    bottom: 100px;
+    z-index: 50;
+}
+
+/* Control button base styles */
+.control-btn {
+    min-width: 60px;
+    width: 60px;
+    padding: var(--space-md) var(--space-sm);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+    border: 2px solid var(--color-text-muted);
+    border-radius: 0;
+    font-family: var(--font-family);
+    font-size: var(--font-size-lg);
+    font-weight: normal;
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+    /* No shadows, gradients, or backdrop-filter */
+    text-align: center;
+}
+
+.control-btn:hover {
+    background: var(--color-bg-tertiary);
+}
+
+.control-btn:active {
+    background: var(--color-bg-hover);
+}
+
+.control-btn:focus {
+    outline: none;
+    border-color: var(--color-accent-green);
+}
+
+/* Disabled state for control buttons (e.g., shape button when using putter) */
+.control-btn.disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Aim button - additional styles for right side */
+.aim-btn {
+    min-width: 50px;
+    min-height: 50px;
+    width: 50px;
+    height: 50px;
+    border-radius: 0;
+    font-size: var(--font-size-lg);
+    background: rgba(30, 30, 30, 0.9);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+.aim-btn:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.aim-btn.active {
+    background: var(--color-fairway);
+    border-color: var(--color-accent-green);
+}
+
+/* ============================================
+   YARDAGE INDICATOR STRIP - Bottom swipe-up hint
+   Requirements: 10.5, 11.3, 11.5
+   ============================================ */
+.yardage-indicator {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.85);
+    padding: var(--space-xl) var(--space-md) var(--space-lg);
+    min-height: 90px;
+    z-index: 40;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background var(--transition-fast);
+    border-radius: 0;
+}
+
+.yardage-indicator:hover {
+    background: rgba(0, 0, 0, 0.9);
+}
+
+.yardage-indicator:active {
+    background: rgba(30, 30, 30, 0.9);
+}
+
+.yardage-indicator-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.yardage-indicator-text {
+    font-family: var(--font-family);
+    font-size: var(--font-size-lg);
+    font-weight: normal;
+    color: var(--color-text-primary);
+}
+
+.yardage-indicator-hint {
+    font-family: var(--font-family);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-muted);
+    animation: swipeHintPulse 2s ease-in-out infinite;
+}
+
+@keyframes swipeHintPulse {
+    0%, 100% {
+        opacity: 0.6;
+        transform: translateY(0);
+    }
+    50% {
+        opacity: 1;
+        transform: translateY(-3px);
+    }
+}
+
+/* Swipe handle bar visual indicator */
+.yardage-indicator::before {
+    content: '';
+    position: absolute;
+    top: var(--space-sm);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 0;
+}
+
+.yardage-indicator:hover::before {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+
+/* ============================================
+   CLUB SELECTOR - Horizontal Expandable List
+   Requirements: 13.1, 13.2, 13.3, 13.5
+   ============================================ */
+
+/* Club selector container - expands from left */
+.club-selector {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    margin-left: var(--space-sm);
+    overflow: hidden;
+    transition: max-width 0.3s ease, opacity 0.3s ease;
+    z-index: 45;
+}
+
+/* Collapsed state - hidden */
+.club-selector.collapsed {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Expanded state - visible with horizontal scroll */
+.club-selector.expanded {
+    max-width: 280px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Horizontal scroll container */
+.club-scroll {
+    display: flex;
+    flex-direction: row;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+    background: rgba(20, 20, 20, 0.95);
+    border-radius: 0;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+}
+
+/* Hide scrollbar for Chrome/Safari */
+.club-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+/* Individual club item in selector */
+.club-selector-item {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(40, 40, 40, 0.9);
+    border: 2px solid transparent;
+    border-radius: 0;
+    font-family: var(--font-family);
+    font-size: var(--font-size-lg);
+    font-weight: normal;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: background-color var(--transition-fast),
+                border-color var(--transition-fast),
+                transform var(--transition-fast),
+                box-shadow var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Club item hover state */
+.club-selector-item:hover {
+    background: rgba(60, 60, 60, 0.95);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+}
+
+/* Club item active/pressed state */
+.club-selector-item:active {
+    transform: scale(0.95);
+    background: rgba(70, 70, 70, 0.95);
+}
+
+/* Selected club highlight - Requirements: 13.5 */
+.club-selector-item.selected {
+    background: var(--color-fairway);
+    border-color: var(--color-accent-green);
+    box-shadow: 0 0 10px rgba(92, 184, 92, 0.4);
+    color: var(--color-text-primary);
+}
+
+.club-selector-item.selected:hover {
+    background: #4a8c44;
+    border-color: var(--color-accent-green);
+}
+
+/* Emoji clubs (Driver, Putter) - no longer using emojis */
+.club-selector-item:first-child,
+.club-selector-item:last-child {
+    font-size: var(--font-size-lg);
+}
+
+/* Position club selector relative to club button */
+#btn-club {
+    position: relative;
+}
+
+
+/* ============================================
+   POWER SLIDER - Horizontal Expandable Slider
+   Requirements: 14.1, 14.2, 14.3
+   ============================================ */
+
+/* Power slider container - expands from left */
+.power-slider-expandable {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    margin-left: var(--space-sm);
+    overflow: hidden;
+    transition: max-width 0.3s ease, opacity 0.3s ease;
+    z-index: 45;
+    border-radius: 0;
+}
+
+/* Collapsed state - hidden */
+.power-slider-expandable.collapsed {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Expanded state - visible */
+.power-slider-expandable.expanded {
+    max-width: 220px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Slider track container */
+.power-slider-track {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: rgba(20, 20, 20, 0.95);
+    border-radius: 0;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+}
+
+/* The range input slider with color gradient */
+.power-range-expandable {
+    width: 120px;
+    height: 32px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    --power-color: hsl(240, 80%, 50%); /* Default blue */
+}
+
+/* Slider track - WebKit (Chrome, Safari) */
+.power-range-expandable::-webkit-slider-runnable-track {
+    height: 8px;
+    background: linear-gradient(to right, 
+        hsl(240, 80%, 50%) 0%,    /* Blue at 0% */
+        hsl(180, 80%, 50%) 25%,   /* Cyan at 25% */
+        hsl(120, 80%, 50%) 50%,   /* Green at 50% */
+        hsl(60, 80%, 50%) 75%,    /* Yellow at 75% */
+        hsl(0, 80%, 50%) 100%     /* Red at 100% */
+    );
+    border-radius: 0;
+}
+
+/* Slider thumb - WebKit */
+.power-range-expandable::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    background: var(--power-color);
+    border: 3px solid var(--color-text-primary);
+    border-radius: 0;
+    cursor: pointer;
+    margin-top: -8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.power-range-expandable::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+}
+
+.power-range-expandable::-webkit-slider-thumb:active {
+    transform: scale(0.95);
+}
+
+/* Slider track - Firefox */
+.power-range-expandable::-moz-range-track {
+    height: 8px;
+    background: linear-gradient(to right, 
+        hsl(240, 80%, 50%) 0%,    /* Blue at 0% */
+        hsl(180, 80%, 50%) 25%,   /* Cyan at 25% */
+        hsl(120, 80%, 50%) 50%,   /* Green at 50% */
+        hsl(60, 80%, 50%) 75%,    /* Yellow at 75% */
+        hsl(0, 80%, 50%) 100%     /* Red at 100% */
+    );
+    border-radius: 0;
+}
+
+/* Slider thumb - Firefox */
+.power-range-expandable::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    background: var(--power-color);
+    border: 3px solid var(--color-text-primary);
+    border-radius: 0;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.power-range-expandable::-moz-range-thumb:hover {
+    transform: scale(1.1);
+}
+
+/* Percentage display */
+.power-percent-display {
+    min-width: 48px;
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    color: hsl(240, 80%, 60%); /* Default blue, updated by JS */
+    text-align: center;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Position power slider relative to power button */
+#btn-power {
+    position: relative;
+}
+
+
+/* ============================================
+   SHAPE SLIDER - Horizontal Expandable Slider with Curve Symbols
+   Requirements: 15.1, 15.2, 15.3, 15.4
+   ============================================ */
+
+/* Shape slider container - expands from left */
+.shape-slider-expandable {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    margin-left: var(--space-sm);
+    overflow: hidden;
+    transition: max-width 0.3s ease, opacity 0.3s ease;
+    z-index: 45;
+    border-radius: 0;
+}
+
+/* Collapsed state - hidden */
+.shape-slider-expandable.collapsed {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Expanded state - visible */
+.shape-slider-expandable.expanded {
+    max-width: 280px;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Slider track container */
+.shape-slider-track {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-md);
+    background: rgba(20, 20, 20, 0.95);
+    border-radius: 0;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+}
+
+/* Curve display - visual indicators showing expected ball flight path */
+/* Requirements: 15.2, 15.4 */
+.curve-display {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 0 var(--space-xs);
+}
+
+/* Individual curve indicator */
+.curve-indicator {
+    font-size: 18px;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: var(--space-xs);
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-fast), 
+                background-color var(--transition-fast),
+                transform var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.curve-indicator:hover {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(1.1);
+}
+
+/* Active/selected curve indicator */
+.curve-indicator.active {
+    color: var(--color-accent-green);
+    background: rgba(92, 184, 92, 0.2);
+    text-shadow: 0 0 8px rgba(92, 184, 92, 0.6);
+}
+
+/* Hook indicator - curves left */
+.curve-hook {
+    color: var(--color-accent-orange);
+}
+
+.curve-hook.active {
+    color: var(--color-accent-orange);
+    background: rgba(243, 156, 18, 0.2);
+    text-shadow: 0 0 8px rgba(243, 156, 18, 0.6);
+}
+
+/* Draw indicator - slight left curve */
+.curve-draw {
+    color: var(--color-accent-yellow);
+}
+
+.curve-draw.active {
+    color: var(--color-accent-yellow);
+    background: rgba(240, 173, 78, 0.2);
+    text-shadow: 0 0 8px rgba(240, 173, 78, 0.6);
+}
+
+/* Straight indicator - no curve */
+.curve-straight.active {
+    color: var(--color-accent-green);
+    background: rgba(92, 184, 92, 0.2);
+    text-shadow: 0 0 8px rgba(92, 184, 92, 0.6);
+}
+
+/* Fade indicator - slight right curve */
+.curve-fade {
+    color: var(--color-accent-yellow);
+}
+
+.curve-fade.active {
+    color: var(--color-accent-yellow);
+    background: rgba(240, 173, 78, 0.2);
+    text-shadow: 0 0 8px rgba(240, 173, 78, 0.6);
+}
+
+/* Slice indicator - curves right */
+.curve-slice {
+    color: var(--color-accent-orange);
+}
+
+.curve-slice.active {
+    color: var(--color-accent-orange);
+    background: rgba(243, 156, 18, 0.2);
+    text-shadow: 0 0 8px rgba(243, 156, 18, 0.6);
+}
+
+/* The range input slider */
+/* Requirements: 15.3 - Range from hard hook (-2) to hard slice (2) with straight (0) in center */
+.shape-range-expandable {
+    width: 180px;
+    height: 32px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+}
+
+/* Slider track - WebKit (Chrome, Safari) */
+.shape-range-expandable::-webkit-slider-runnable-track {
+    height: 8px;
+    background: linear-gradient(to right, 
+        var(--color-accent-orange) 0%,      /* Hook */
+        var(--color-accent-yellow) 25%,     /* Draw */
+        var(--color-accent-green) 50%,      /* Straight */
+        var(--color-accent-yellow) 75%,     /* Fade */
+        var(--color-accent-orange) 100%     /* Slice */
+    );
+    border-radius: 0;
+}
+
+/* Slider thumb - WebKit */
+.shape-range-expandable::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    background: var(--color-text-primary);
+    border: 3px solid var(--color-accent-green);
+    border-radius: 0;
+    cursor: pointer;
+    margin-top: -8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    transition: transform var(--transition-fast), 
+                box-shadow var(--transition-fast),
+                border-color var(--transition-fast);
+}
+
+.shape-range-expandable::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+}
+
+.shape-range-expandable::-webkit-slider-thumb:active {
+    transform: scale(0.95);
+}
+
+/* Slider track - Firefox */
+.shape-range-expandable::-moz-range-track {
+    height: 8px;
+    background: linear-gradient(to right, 
+        var(--color-accent-orange) 0%,      /* Hook */
+        var(--color-accent-yellow) 25%,     /* Draw */
+        var(--color-accent-green) 50%,      /* Straight */
+        var(--color-accent-yellow) 75%,     /* Fade */
+        var(--color-accent-orange) 100%     /* Slice */
+    );
+    border-radius: 0;
+}
+
+/* Slider thumb - Firefox */
+.shape-range-expandable::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    background: var(--color-text-primary);
+    border: 3px solid var(--color-accent-green);
+    border-radius: 0;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.shape-range-expandable::-moz-range-thumb:hover {
+    transform: scale(1.1);
+}
+
+/* Position shape slider relative to shape button */
+#btn-shape {
+    position: relative;
+}
+
+
+/* ============================================
+   YARDAGE BOOK TAB TRANSITIONS
+   Requirements: 5.5 - Swipeable tabs with smooth transitions
+   ============================================ */
+
+/* Tab content transition container */
+.yardage-content {
+    position: relative;
+    overflow: hidden;
+}
+
+/* Tab content transition states */
+.yardage-content.transitioning {
+    pointer-events: none;
+}
+
+/* Smooth slide animation for tab transitions */
+.yardage-content.slide-out-left {
+    animation: slideOutLeft 0.25s ease-in forwards;
+}
+
+.yardage-content.slide-out-right {
+    animation: slideOutRight 0.25s ease-in forwards;
+}
+
+.yardage-content.slide-in-left {
+    animation: slideInLeft 0.25s ease-out forwards;
+}
+
+.yardage-content.slide-in-right {
+    animation: slideInRight 0.25s ease-out forwards;
+}
+
+@keyframes slideOutLeft {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+}
+
+@keyframes slideOutRight {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+@keyframes slideInLeft {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Tab button active indicator animation */
+.tab-btn {
+    position: relative;
+    transition: color var(--transition-fast), 
+                background-color var(--transition-fast);
+}
+
+.tab-btn::after {
+    transition: transform 0.2s ease-out, 
+                opacity 0.2s ease-out;
+}
+
+/* Swipe feedback visual indicator */
+.yardage-content::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 50px;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 100;
+    transition: opacity 0.15s ease;
+}
+
+/* Left edge swipe indicator */
+.yardage-content.swiping-right::before {
+    left: 0;
+    background: linear-gradient(to right, 
+        rgba(92, 184, 92, 0.3) 0%, 
+        transparent 100%
+    );
+    opacity: 1;
+}
+
+/* Right edge swipe indicator */
+.yardage-content.swiping-left::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 50px;
+    background: linear-gradient(to left, 
+        rgba(92, 184, 92, 0.3) 0%, 
+        transparent 100%
+    );
+    pointer-events: none;
+    opacity: 1;
+    z-index: 100;
 }

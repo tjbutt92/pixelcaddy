@@ -93,6 +93,10 @@ export class AimLine {
     setupEvents() {
         // Mouse events
         this.container.addEventListener('mousedown', (e) => {
+            // Ignore clicks on UI elements (buttons, controls)
+            if (e.target.closest('.control-btn, .left-controls, .right-controls, .yardage-indicator')) {
+                return;
+            }
             if (this.isAimMode) {
                 this.isDragging = true;
                 this.handleAimInput(e.clientX, e.clientY);
@@ -111,6 +115,10 @@ export class AimLine {
 
         // Touch events
         this.container.addEventListener('touchstart', (e) => {
+            // Ignore touches on UI elements (buttons, controls)
+            if (e.target.closest('.control-btn, .left-controls, .right-controls, .yardage-indicator')) {
+                return;
+            }
             if (this.isAimMode) {
                 this.isDragging = true;
                 const touch = e.touches[0];

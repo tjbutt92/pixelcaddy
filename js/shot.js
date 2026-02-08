@@ -38,7 +38,7 @@ export class ShotSimulator {
     }
 
     hit(params) {
-        const { club, power, shape, aimAngle, holeData, wind = { speed: 0, direction: 0 } } = params;
+        const { club, power, shape, aimAngle, holeData, wind = { speed: 0, relativeDirection: 0 } } = params;
         const start = this.ball.getPosition();
         const terrain = getTerrainAt(holeData, start.x, start.y) || 'fairway';
         
@@ -64,8 +64,8 @@ export class ShotSimulator {
         launchConditions = applyLieToLaunch(launchConditions, lie, club.name);
         console.log(`Lie: ${lie.data.name} - Distance: ${Math.round(lie.data.effects.distanceMultiplier * 100)}%, Spin: ${Math.round(lie.data.effects.spinMultiplier * 100)}%`);
         
-        const windRelativeToTarget = (wind.direction - aimAngle + 360) % 360;
-        const windRelativeToFlight = (windRelativeToTarget - launchConditions.launchDirection + 360) % 360;
+        // Wind relative direction is pre-calculated by getWindForShot()
+        const windRelativeToFlight = (wind.relativeDirection - launchConditions.launchDirection + 360) % 360;
         const trajectoryResult = simulateTrajectory(launchConditions, wind.speed, windRelativeToFlight);
         
         console.log(`Shot: ${club.name}, Carry: ${trajectoryResult.carry.toFixed(0)}y`);
@@ -92,7 +92,7 @@ export class ShotSimulator {
         
         const shotData = {
             intendedYards, actualYards: actualTotal,
-            distanceError: actualTotal - intendedYards,
+            distanceError: actualCarry - intendedYards,  // Use carry for dispersion, not total
             directionError: trajectoryResult.lateral,
             isMiss: variability.isMiss || variability.isDisaster,
             lie: { type: lie.type, name: lie.data.name, effects: lie.data.effects },
@@ -156,62 +156,92 @@ export class ShotSimulator {
     /**
      * Simulate putt path with slope breaking
      * Returns path points and final position
+     * 
+     * Physics model for fast tournament greens (stimp 11-13):
+     * - Ball glides with very low friction
+     * - Gravity pulls ball downhill, can accelerate on downslopes
+     * - Deceleration is gradual and smooth
+     * - Break increases as ball slows
      */
     simulatePutt(start, aimAngle, totalUnits, holeData) {
         const path = [{ x: start.x, y: start.y }];
         const aimRad = (aimAngle * Math.PI) / 180;
         
-        // Initial velocity direction
-        let velX = Math.sin(aimRad);
-        let velY = -Math.cos(aimRad);
+        // Green speed - stimp meter rating
+        // 11-13 = PGA Tour speed (very fast)
+        const greenSpeed = 12;
+        const stimpFactor = greenSpeed / 10;
         
-        // Simulate in small steps
-        const numSteps = 100;
-        const stepSize = totalUnits / numSteps;
+        // Rolling resistance coefficient for fast greens
+        // Lower = faster/slicker greens
+        const rollingResistance = 0.035 / stimpFactor;
+        
+        // Initial speed for desired distance
+        // Scale factor varies slightly with distance to compensate for variable friction
+        const distanceScale = 0.90 + (totalUnits * 0.02); // Longer putts need slightly more speed
+        const initialSpeed = Math.sqrt(2 * rollingResistance * totalUnits) * Math.min(distanceScale, 1.0);
+        
+        let velX = Math.sin(aimRad) * initialSpeed;
+        let velY = -Math.cos(aimRad) * initialSpeed;
+        
+        const dt = 0.016; // ~60fps
+        const maxTime = 20; // Long putts can roll a while
         
         let x = start.x;
         let y = start.y;
-        let remainingEnergy = 1.0; // Energy decreases as ball rolls
         
-        // Green speed factor (stimp meter simulation)
-        // Higher = faster greens, more break
-        const greenSpeed = 11; // Typical tournament green stimp
-        const breakFactor = 0.15 * (greenSpeed / 10); // How much slope affects direction
+        // Gravity effect on slopes (how much slope affects ball)
+        // Needs to be strong enough that steep slopes can accelerate a slow ball
+        const slopeEffect = 0.025 * stimpFactor;
         
-        for (let i = 0; i < numSteps && remainingEnergy > 0.01; i++) {
+        let t = 0;
+        let stepCount = 0;
+        
+        while (t < maxTime) {
+            const speed = Math.sqrt(velX * velX + velY * velY);
+            
+            // Stop when ball is essentially stopped
+            if (speed < 0.0003) break;
+            
             // Get slope at current position
             const slope = getSlopeAt(holeData, x, y);
             
-            // Ball curves toward downhill (slope points uphill, so negate)
-            // Effect increases as ball slows down
-            const speedFactor = Math.sqrt(remainingEnergy);
-            const slopeInfluence = breakFactor * (1 - speedFactor * 0.5);
+            // Slope acceleration - ball accelerates downhill, decelerates uphill
+            // slope points UPHILL, so negate for downhill acceleration
+            const slopeAccelX = -slope.x * slopeEffect;
+            const slopeAccelY = -slope.y * slopeEffect;
             
-            // Adjust velocity direction based on slope
-            velX -= slope.x * slopeInfluence;
-            velY -= slope.y * slopeInfluence;
+            // Rolling friction - decreases at low speeds
+            // This allows gravity to accelerate a slow ball on steep slopes
+            // At high speed: full friction. At low speed: reduced friction
+            const speedFactor = Math.min(1, speed / 0.15); // Ramps from 0 to 1
+            const effectiveFriction = rollingResistance * (0.3 + 0.7 * speedFactor);
+            const fricAccelX = -(velX / speed) * effectiveFriction;
+            const fricAccelY = -(velY / speed) * effectiveFriction;
             
-            // Normalize velocity
-            const velMag = Math.sqrt(velX * velX + velY * velY);
-            if (velMag > 0) {
-                velX /= velMag;
-                velY /= velMag;
+            // Total acceleration
+            const accelX = slopeAccelX + fricAccelX;
+            const accelY = slopeAccelY + fricAccelY;
+            
+            // Update velocity
+            velX += accelX * dt;
+            velY += accelY * dt;
+            
+            // Update position
+            x += velX * dt;
+            y += velY * dt;
+            
+            // Store path points for animation
+            stepCount++;
+            if (stepCount % 2 === 0) {
+                path.push({ x, y, speed });
             }
             
-            // Move ball
-            const actualStep = stepSize * speedFactor;
-            x += velX * actualStep;
-            y += velY * actualStep;
-            
-            // Decrease energy (friction)
-            // Uphill putts lose energy faster, downhill gain slightly
-            const slopeAlongPath = slope.x * velX + slope.y * velY;
-            const frictionFactor = 0.015 + slopeAlongPath * 0.01;
-            remainingEnergy -= frictionFactor;
-            
-            // Store path point
-            path.push({ x, y, energy: remainingEnergy });
+            t += dt;
         }
+        
+        // Add final position
+        path.push({ x, y, speed: 0 });
         
         // Calculate actual distance rolled
         let totalDistance = 0;
@@ -221,8 +251,8 @@ export class ShotSimulator {
             totalDistance += Math.sqrt(dx * dx + dy * dy);
         }
         
-        // Duration based on distance (longer putts take more time)
-        const duration = Math.max(1000, Math.min(3000, totalDistance * 200));
+        // Duration - fast greens mean the ball rolls longer
+        const duration = Math.max(1000, Math.min(5000, t * 450));
         
         return {
             path,
@@ -237,6 +267,16 @@ export class ShotSimulator {
      */
     animatePutt(start, path, duration, shotData, holeData) {
         this.isAnimating = true;
+        
+        // Safety check - ensure path has at least 2 points
+        if (!path || path.length < 2) {
+            const finalPos = path && path.length > 0 ? path[0] : start;
+            this.ball.setPosition(finalPos.x, finalPos.y, 0);
+            this.isAnimating = false;
+            if (this.onComplete) this.onComplete(finalPos, shotData);
+            return;
+        }
+        
         const startTime = performance.now();
         
         const animate = (currentTime) => {
@@ -247,12 +287,20 @@ export class ShotSimulator {
             const easeT = 1 - Math.pow(1 - t, 2);
             
             // Find position along path
-            const pathIndex = Math.floor(easeT * (path.length - 1));
+            const pathIndex = Math.min(Math.floor(easeT * (path.length - 1)), path.length - 1);
             const nextIndex = Math.min(pathIndex + 1, path.length - 1);
             const localT = (easeT * (path.length - 1)) - pathIndex;
             
             const point = path[pathIndex];
             const nextPoint = path[nextIndex];
+            
+            if (!point || !nextPoint) {
+                const finalPos = path[path.length - 1];
+                this.ball.setPosition(finalPos.x, finalPos.y, 0);
+                this.isAnimating = false;
+                if (this.onComplete) this.onComplete(finalPos, shotData);
+                return;
+            }
             
             const x = point.x + (nextPoint.x - point.x) * localT;
             const y = point.y + (nextPoint.y - point.y) * localT;

@@ -93,7 +93,7 @@ class CourseEditor {
         });
         
         // Layer toggles
-        ['grid', 'elevation', 'terrain', 'trees', 'markers', 'sprinklers', 'centreline', 'nodes'].forEach(layer => {
+        ['grid', 'elevation', 'terrain', 'trees', 'markers', 'sprinklers', 'measurePoints', 'centreline', 'nodes'].forEach(layer => {
             document.getElementById(`layer-${layer}`).addEventListener('change', (e) => {
                 this.canvas.setLayerVisible(layer, e.target.checked);
             });
@@ -366,6 +366,11 @@ class CourseEditor {
             // Ensure sprinkler heads array exists
             if (!course.sprinklerHeads) {
                 course.sprinklerHeads = [];
+            }
+            
+            // Ensure measure points array exists
+            if (!course.measurePoints) {
+                course.measurePoints = [];
             }
             
             return course;

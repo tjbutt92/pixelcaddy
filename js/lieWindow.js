@@ -1,26 +1,38 @@
 // Lie Window UI - displays current ball lie in bottom left corner
 
+import { THEME_COLORS } from './theme-colors.js';
+import { TerrainType } from './terrain.js';
+
 let lieWindowElement = null;
 let currentLie = null;
 
+// Map terrain types to background colors (varying shades of green + sand/water)
+const terrainColors = {
+    [TerrainType.TEE]: THEME_COLORS.fairway,
+    [TerrainType.FAIRWAY]: THEME_COLORS.fairway,
+    [TerrainType.ROUGH]: THEME_COLORS.rough,
+    [TerrainType.GREEN]: THEME_COLORS.green,
+    [TerrainType.BUNKER]: THEME_COLORS.bunker,
+    [TerrainType.WATER]: THEME_COLORS.water
+};
+
 /**
- * Create the lie window element
+ * Initialize the lie window - uses existing element from HTML
  */
 export function createLieWindow() {
     if (lieWindowElement) return lieWindowElement;
     
-    lieWindowElement = document.createElement('div');
-    lieWindowElement.className = 'lie-window';
-    lieWindowElement.id = 'lie-window';
+    // Use existing element from HTML instead of creating new one
+    lieWindowElement = document.getElementById('lie-window');
     
-    lieWindowElement.innerHTML = `
-        <div class="lie-window-content">
-            <div class="lie-image">⛳</div>
-            <div class="lie-name">Perfect Lie</div>
-        </div>
-    `;
-    
-    document.body.appendChild(lieWindowElement);
+    if (lieWindowElement) {
+        // Populate the placeholder with content (no emoji, just abbreviated name)
+        lieWindowElement.innerHTML = `
+            <div class="lie-window-content">
+                <div class="lie-name">PL</div>
+            </div>
+        `;
+    }
     
     return lieWindowElement;
 }
@@ -28,8 +40,9 @@ export function createLieWindow() {
 /**
  * Update the lie window with new lie data
  * @param {object} lie - The lie object { type, data }
+ * @param {string} terrain - The terrain type at ball position
  */
-export function updateLieWindow(lie) {
+export function updateLieWindow(lie, terrain = null) {
     if (!lieWindowElement) {
         createLieWindow();
     }
@@ -37,9 +50,20 @@ export function updateLieWindow(lie) {
     currentLie = lie;
     const data = lie.data;
     
-    // Update image and name
-    lieWindowElement.querySelector('.lie-image').textContent = data.image;
+    // Update name only (no emoji)
     lieWindowElement.querySelector('.lie-name').textContent = data.name;
+    
+    // Update background color based on terrain
+    if (terrain && terrainColors[terrain]) {
+        lieWindowElement.style.backgroundColor = terrainColors[terrain];
+        // Use dark text for light backgrounds (bunker, fairway, green)
+        const lightBackgrounds = [TerrainType.BUNKER, TerrainType.FAIRWAY, TerrainType.GREEN, TerrainType.TEE];
+        if (lightBackgrounds.includes(terrain)) {
+            lieWindowElement.querySelector('.lie-name').style.color = '#333';
+        } else {
+            lieWindowElement.querySelector('.lie-name').style.color = '#fff';
+        }
+    }
 }
 
 /**

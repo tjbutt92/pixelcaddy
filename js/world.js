@@ -5,39 +5,19 @@ import * as THREE from 'three';
 import { TerrainType, terrainProperties, setCourse, getElevationAt, findGreenFront } from './terrain.js';
 import { TreeType, treeProperties, createTree3D } from './trees.js';
 import { 
-    WORLD_SCALE, 
     isPointInPolygon, 
     distanceToSegment, 
     distanceToPolygon, 
     smoothstep,
     yardsToWorld,
-    findCircleCentrelineIntersection
+    findCircleCentrelineIntersection,
+    findPointAtYardageFromRef
 } from './utils.js';
+import { TERRAIN_COLORS, SKY, CONVERSION } from './constants.js';
+import { getWindForVisuals } from './wind.js';
 
-// Sky configuration
-const SKY_CONFIG = {
-    sunColor: 0xfffacd,        // Warm sun color
-    sunSize: 80,               // Sun disc size
-    sunDistance: 3000,         // Distance from origin
-    sunElevation: 80,          // Sun elevation angle in degrees (0=horizon, 90=overhead)
-    sunAzimuth: 30,            // Sun azimuth angle in degrees (direction around horizon)
-    cloudCount: 15,            // Number of cloud groups
-    cloudMinHeight: 400,       // Minimum cloud height
-    cloudMaxHeight: 600,       // Maximum cloud height
-    cloudSpread: 2000,         // How far clouds spread from center
-    cloudSpeed: 0.5            // Cloud movement speed
-};
-
-// Terrain colors for 3D rendering
-const TERRAIN_COLORS = {
-    [TerrainType.FAIRWAY]: 0x3d6b35,
-    [TerrainType.ROUGH]: 0x2d5a27,
-    [TerrainType.GREEN]: 0x5cb85c,
-    [TerrainType.BUNKER]: 0xe8d4a8,
-    [TerrainType.WATER]: 0x3498db,
-    [TerrainType.TEE]: 0x4a7c43,
-    [TerrainType.OUT_OF_BOUNDS]: 0x1a1a1a
-};
+// Use WORLD_SCALE from CONVERSION for backward compatibility
+const WORLD_SCALE = CONVERSION.WORLD_SCALE;
 
 export class World {
     constructor(scene) {
@@ -160,7 +140,7 @@ export class World {
         this.modifyTerrainForFeatures(grid, bounds);
         
         // Create terrain color texture with slope shading
-        const textureSize = 4096; // High res texture for sharp edges
+        const textureSize = 4096; // Higher resolution for crisp terrain boundaries
         const texture = this.createTerrainTexture(textureSize, bounds);
         
         // Create geometry from elevation grid
@@ -210,10 +190,10 @@ export class World {
     buildSky() {
         // Sun position already calculated in calculateSunPosition()
         
-        // Create sun disc
-        const sunGeometry = new THREE.CircleGeometry(SKY_CONFIG.sunSize, 32);
+        // Create sun disc (low-poly for pixelated look)
+        const sunGeometry = new THREE.CircleGeometry(SKY.SUN_SIZE, 8);
         const sunMaterial = new THREE.MeshBasicMaterial({
-            color: SKY_CONFIG.sunColor,
+            color: SKY.SUN_COLOR,
             side: THREE.DoubleSide,
             transparent: true,
             opacity: 1.0
@@ -223,8 +203,8 @@ export class World {
         this.sunMesh.lookAt(0, 0, 0);
         this.scene.add(this.sunMesh);
         
-        // Create sun glow
-        const glowGeometry = new THREE.CircleGeometry(SKY_CONFIG.sunSize * 2.5, 32);
+        // Create sun glow (low-poly)
+        const glowGeometry = new THREE.CircleGeometry(SKY.SUN_SIZE * 2.5, 8);
         const glowMaterial = new THREE.MeshBasicMaterial({
             color: 0xfffacd,
             side: THREE.DoubleSide,
@@ -243,16 +223,16 @@ export class World {
     // Calculate sun position (called before terrain for shadow baking)
     calculateSunPosition() {
         // Convert degrees to radians
-        const elevationRad = (SKY_CONFIG.sunElevation * Math.PI) / 180;
-        const azimuthRad = (SKY_CONFIG.sunAzimuth * Math.PI) / 180;
+        const elevationRad = (SKY.SUN_ELEVATION * Math.PI) / 180;
+        const azimuthRad = (SKY.SUN_AZIMUTH * Math.PI) / 180;
         
         // Calculate sun position
         // At 90° elevation, sun is directly overhead (Y = distance, X = Z = 0)
         // At 0° elevation, sun is on horizon
         this.sunPosition.set(
-            Math.cos(azimuthRad) * Math.cos(elevationRad) * SKY_CONFIG.sunDistance,
-            Math.sin(elevationRad) * SKY_CONFIG.sunDistance,
-            Math.sin(azimuthRad) * Math.cos(elevationRad) * SKY_CONFIG.sunDistance
+            Math.cos(azimuthRad) * Math.cos(elevationRad) * SKY.SUN_DISTANCE,
+            Math.sin(elevationRad) * SKY.SUN_DISTANCE,
+            Math.sin(azimuthRad) * Math.cos(elevationRad) * SKY.SUN_DISTANCE
         );
         
         // Store shadow length multiplier based on sun elevation
@@ -265,13 +245,13 @@ export class World {
     
     // Create fluffy cloud groups
     createClouds() {
-        for (let i = 0; i < SKY_CONFIG.cloudCount; i++) {
+        for (let i = 0; i < SKY.CLOUD_COUNT; i++) {
             const cloud = this.createCloudGroup();
             
             // Random position in sky
             const angle = Math.random() * Math.PI * 2;
-            const distance = Math.random() * SKY_CONFIG.cloudSpread;
-            const height = SKY_CONFIG.cloudMinHeight + Math.random() * (SKY_CONFIG.cloudMaxHeight - SKY_CONFIG.cloudMinHeight);
+            const distance = Math.random() * SKY.CLOUD_SPREAD;
+            const height = SKY.CLOUD_MIN_HEIGHT + Math.random() * (SKY.CLOUD_MAX_HEIGHT - SKY.CLOUD_MIN_HEIGHT);
             
             cloud.group.position.set(
                 Math.cos(angle) * distance,
@@ -291,21 +271,23 @@ export class World {
         }
     }
     
-    // Create a single cloud group made of multiple spheres
+    // Create a single cloud group made of multiple low-poly shapes
     createCloudGroup() {
         const group = new THREE.Group();
         
         const cloudMaterial = new THREE.MeshLambertMaterial({
             color: 0xffffff,
             transparent: true,
-            opacity: 0.9
+            opacity: 0.9,
+            flatShading: true
         });
         
-        // Create cloud puffs
+        // Create cloud puffs (low-poly for pixelated look)
         const puffCount = 5 + Math.floor(Math.random() * 5);
         for (let i = 0; i < puffCount; i++) {
             const size = 20 + Math.random() * 40;
-            const puffGeometry = new THREE.SphereGeometry(size, 8, 6);
+            // Use icosahedron with 0 subdivisions for chunky look
+            const puffGeometry = new THREE.IcosahedronGeometry(size, 0);
             const puff = new THREE.Mesh(puffGeometry, cloudMaterial);
             
             // Position puffs to form cloud shape
@@ -328,15 +310,15 @@ export class World {
         };
     }
 
-    // Create a texture with terrain colors and slope shading
+    // Create a texture with terrain colors and crisp boundaries
     createTerrainTexture(size, bounds) {
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         
-        // Fill with rough color as base
-        ctx.fillStyle = '#2d5a27';
+        // Fill with rough color as base - darker green
+        ctx.fillStyle = '#1a3d18';
         ctx.fillRect(0, 0, size, size);
         
         // Draw terrain features in order (back to front)
@@ -348,6 +330,10 @@ export class World {
             const y = ((worldY - bounds.minY) / (bounds.maxY - bounds.minY)) * size;
             return { x, y };
         };
+        
+        // Scale factor for world to canvas
+        const worldWidth = bounds.maxX - bounds.minX;
+        const scale = size / worldWidth;
         
         // Draw polygon on canvas
         const drawPolygon = (points, color) => {
@@ -364,6 +350,24 @@ export class World {
             ctx.fill();
         };
         
+        // Draw polygon outline for crisp edge
+        const drawPolygonOutline = (points, outlineColor, lineWidth) => {
+            if (!points || points.length < 3) return;
+            ctx.strokeStyle = outlineColor;
+            ctx.lineWidth = lineWidth * scale;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            const start = toCanvas(points[0][0], points[0][1]);
+            ctx.moveTo(start.x, start.y);
+            for (let i = 1; i < points.length; i++) {
+                const p = toCanvas(points[i][0], points[i][1]);
+                ctx.lineTo(p.x, p.y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+        };
+        
         // Draw rectangle on canvas
         const drawRect = (zone, color) => {
             ctx.fillStyle = color;
@@ -376,7 +380,7 @@ export class World {
         const drawLine = (points, color, width) => {
             if (!points || points.length < 2) return;
             ctx.strokeStyle = color;
-            ctx.lineWidth = (width || 3) * size / (bounds.maxX - bounds.minX);
+            ctx.lineWidth = (width || 3) * scale;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             ctx.beginPath();
@@ -400,25 +404,44 @@ export class World {
             }
         };
         
+        // Draw shape outline
+        const drawShapeOutline = (zone, outlineColor, lineWidth) => {
+            if (zone.shape === 'polygon') {
+                drawPolygonOutline(zone.points, outlineColor, lineWidth);
+            }
+        };
+        
         // Draw in render order - skip water since it's a separate flat plane
         if (terrain.outOfBounds) {
             terrain.outOfBounds.forEach(f => drawShape(f, '#1a1a1a'));
         }
         if (terrain.fairway) {
-            terrain.fairway.forEach(f => drawShape(f, '#3d6b35'));
+            terrain.fairway.forEach(f => drawShape(f, '#4a8c40'));
+            // Add crisp edge outline (darker green)
+            terrain.fairway.forEach(f => drawShapeOutline(f, '#2a4d26', 0.4));
         }
+        
+        // Add mowing stripes to fairway (before bunkers so they don't affect sand)
+        this.addMowingStripes(ctx, size, bounds, terrain.fairway);
+        
+        // Draw bunkers after stripes to ensure clean sand
         if (terrain.bunker) {
-            terrain.bunker.forEach(f => drawShape(f, '#e8d4a8'));
+            terrain.bunker.forEach(f => drawShape(f, '#f5e6c8'));
+            // Add crisp edge outline (darker sand/brown)
+            terrain.bunker.forEach(f => drawShapeOutline(f, '#8b7355', 0.3));
         }
         // Water is rendered as separate flat plane, but draw dark color for underwater terrain
         if (terrain.water) {
             terrain.water.forEach(f => drawShape(f, '#1a3d4d'));
         }
         if (terrain.green) {
-            terrain.green.forEach(f => drawShape(f, '#5cb85c'));
+            terrain.green.forEach(f => drawShape(f, '#6dd66d'));
+            // Add crisp edge outline (slightly darker)
+            terrain.green.forEach(f => drawShapeOutline(f, '#4a9a4a', 0.3));
         }
         if (terrain.teeBox) {
-            terrain.teeBox.forEach(f => drawShape(f, '#4a7c43'));
+            terrain.teeBox.forEach(f => drawShape(f, '#5a9c50'));
+            terrain.teeBox.forEach(f => drawShapeOutline(f, '#3a6233', 0.3));
         }
         if (terrain.path) {
             terrain.path.forEach(f => drawShape(f, '#8b7355'));
@@ -433,8 +456,9 @@ export class World {
         const texture = new THREE.CanvasTexture(canvas);
         texture.wrapS = THREE.ClampToEdgeWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
-        texture.minFilter = THREE.LinearMipmapLinearFilter;
-        texture.magFilter = THREE.LinearFilter;
+        // Use nearest filtering for crisp terrain boundaries
+        texture.minFilter = THREE.NearestMipmapLinearFilter;
+        texture.magFilter = THREE.NearestFilter;
         texture.anisotropy = 16; // Sharper at angles
         
         return texture;
@@ -445,7 +469,7 @@ export class World {
         if (!this.course.trees || this.course.trees.length === 0) return;
         
         // Get sun direction for shadow projection (horizontal direction only)
-        const azimuthRad = (SKY_CONFIG.sunAzimuth * Math.PI) / 180;
+        const azimuthRad = (SKY.SUN_AZIMUTH * Math.PI) / 180;
         
         // Shadow direction is opposite to sun's horizontal direction
         // shadowLengthMultiplier already accounts for sun elevation
@@ -464,7 +488,7 @@ export class World {
         const scale = size / worldWidth;
         
         ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
         
         this.course.trees.forEach(tree => {
             const props = treeProperties[tree.type];
@@ -663,45 +687,165 @@ export class World {
         const worldWidth = bounds.maxX - bounds.minX;
         const worldHeight = bounds.maxY - bounds.minY;
         
-        // Apply shading to every pixel
+        // Pre-calculate grid sampling parameters
+        const gridScaleX = (grid.cols - 1) / worldWidth;
+        const gridScaleY = (grid.rows - 1) / worldHeight;
+        const pixelToWorldX = worldWidth / size;
+        const pixelToWorldY = worldHeight / size;
+        const delta = 0.5; // Sample distance in world units
+        
+        // Pre-generate noise array for performance (seeded random)
+        const noiseSize = 256;
+        const noise = new Float32Array(noiseSize * noiseSize);
+        for (let i = 0; i < noise.length; i++) {
+            noise[i] = 0.9 + Math.random() * 0.2;
+        }
+        
+        // Get green zones for enhanced slope shading
+        const greenZones = this.course.terrain?.green || [];
+        
+        // Apply shading to every pixel using bilinear interpolation (faster than bicubic)
         for (let py = 0; py < size; py++) {
+            const worldY = bounds.minY + py * pixelToWorldY;
+            const rowOffset = py * size * 4;
+            
             for (let px = 0; px < size; px++) {
-                // Convert pixel to world coordinates
-                const worldX = bounds.minX + (px / size) * worldWidth;
-                const worldY = bounds.minY + (py / size) * worldHeight;
+                const worldX = bounds.minX + px * pixelToWorldX;
                 
-                // Calculate normal using smooth elevation sampling
-                const normal = this.calculateTerrainNormalSmooth(grid, bounds, worldX, worldY);
+                // Calculate normal using fast bilinear elevation sampling
+                const normal = this.calculateTerrainNormalFast(grid, bounds, worldX, worldY, delta, gridScaleX, gridScaleY);
                 
                 // Calculate lighting (dot product with sun direction)
                 const dot = normal.x * sunDir.x + normal.y * sunDir.y + normal.z * sunDir.z;
                 
-                // Map dot product to brightness adjustment (darker overall)
-                const brightness = 0.5 + dot * 0.3;
+                // Check if this pixel is on a green - apply much stronger slope shading
+                const onGreen = this.isPointOnGreen(worldX, worldY, greenZones);
                 
-                // Add subtle random texture noise
-                const noise = 0.9 + Math.random() * 0.2; // 0.9 to 1.1 (±10% = 20% range)
-                const finalBrightness = brightness * noise;
+                // Map dot product to brightness adjustment
+                // Greens get 4x stronger slope effect for better readability
+                // Normal terrain: 0.5 + dot * 0.3 (range 0.2 to 0.8)
+                // Greens: 0.5 + dot * 1.2 (range -0.7 to 1.7, clamped)
+                let brightness;
+                if (onGreen) {
+                    // Much stronger contrast on greens to show slopes clearly
+                    brightness = 0.5 + dot * 1.2;
+                    // Clamp to reasonable range but allow more extreme values
+                    brightness = Math.max(0.15, Math.min(1.4, brightness));
+                } else {
+                    brightness = 0.5 + dot * 0.3;
+                }
                 
-                const idx = (py * size + px) * 4;
-                data[idx] = Math.min(255, Math.max(0, data[idx] * finalBrightness));
-                data[idx + 1] = Math.min(255, Math.max(0, data[idx + 1] * finalBrightness));
-                data[idx + 2] = Math.min(255, Math.max(0, data[idx + 2] * finalBrightness));
+                // Use pre-generated noise (tiled) - less noise on greens for cleaner look
+                const noiseIdx = ((py & (noiseSize - 1)) * noiseSize + (px & (noiseSize - 1)));
+                const noiseValue = onGreen ? (0.95 + (noise[noiseIdx] - 0.9) * 0.5) : noise[noiseIdx];
+                const finalBrightness = brightness * noiseValue;
+                
+                const idx = rowOffset + px * 4;
+                data[idx] = Math.min(255, Math.max(0, data[idx] * finalBrightness)) | 0;
+                data[idx + 1] = Math.min(255, Math.max(0, data[idx + 1] * finalBrightness)) | 0;
+                data[idx + 2] = Math.min(255, Math.max(0, data[idx + 2] * finalBrightness)) | 0;
             }
         }
         
         ctx.putImageData(imageData, 0, 0);
     }
     
-    // Calculate terrain normal using bicubic interpolated elevations
-    calculateTerrainNormalSmooth(grid, bounds, worldX, worldY) {
-        const delta = 0.5; // Sample distance in world units
+    // Add mowing stripes to fairway for visual depth cues
+    addMowingStripes(ctx, size, bounds, fairwayZones) {
+        if (!fairwayZones || fairwayZones.length === 0) return;
         
-        // Get elevations using bicubic interpolation
-        const elevRight = this.getElevationBicubic(grid, bounds, worldX + delta, worldY);
-        const elevLeft = this.getElevationBicubic(grid, bounds, worldX - delta, worldY);
-        const elevUp = this.getElevationBicubic(grid, bounds, worldX, worldY + delta);
-        const elevDown = this.getElevationBicubic(grid, bounds, worldX, worldY - delta);
+        const worldWidth = bounds.maxX - bounds.minX;
+        const worldHeight = bounds.maxY - bounds.minY;
+        
+        // Helper to convert world coords to canvas coords
+        const toCanvas = (worldX, worldY) => {
+            const x = ((worldX - bounds.minX) / worldWidth) * size;
+            const y = ((worldY - bounds.minY) / worldHeight) * size;
+            return { x, y };
+        };
+        
+        // Stripe width in world units (about 3 yards = narrower mower stripes)
+        const stripeWidth = 3;
+        const stripeWidthCanvas = (stripeWidth / worldWidth) * size;
+        
+        // Use hole direction for stripe orientation (tee to hole)
+        const hole = this.currentHole;
+        let stripeAngle = 0;
+        if (hole && hole.tee && hole.hole) {
+            stripeAngle = Math.atan2(hole.hole.x - hole.tee.x, hole.hole.y - hole.tee.y);
+        }
+        
+        ctx.save();
+        
+        // Create clipping path from all fairway zones
+        ctx.beginPath();
+        for (const zone of fairwayZones) {
+            if (zone.shape === 'polygon' && zone.points && zone.points.length >= 3) {
+                const start = toCanvas(zone.points[0][0], zone.points[0][1]);
+                ctx.moveTo(start.x, start.y);
+                for (let i = 1; i < zone.points.length; i++) {
+                    const p = toCanvas(zone.points[i][0], zone.points[i][1]);
+                    ctx.lineTo(p.x, p.y);
+                }
+                ctx.closePath();
+            }
+        }
+        ctx.clip();
+        
+        // Draw alternating stripes across the entire canvas (clipped to fairway)
+        ctx.globalCompositeOperation = 'multiply';
+        
+        // Rotate around canvas center
+        const centerX = size / 2;
+        const centerY = size / 2;
+        ctx.translate(centerX, centerY);
+        ctx.rotate(-stripeAngle);
+        ctx.translate(-centerX, -centerY);
+        
+        // Draw stripes covering the rotated area (need extra coverage for rotation)
+        const diagonal = Math.sqrt(2) * size;
+        const numStripes = Math.ceil(diagonal / stripeWidthCanvas) + 2;
+        const startOffset = -diagonal / 2;
+        
+        for (let i = 0; i < numStripes; i++) {
+            if (i % 2 === 0) {
+                // Lighter stripe
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.30)';
+            } else {
+                // Darker stripe
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.30)';
+            }
+            const x = startOffset + i * stripeWidthCanvas;
+            ctx.fillRect(x, -diagonal / 2, stripeWidthCanvas, diagonal * 2);
+        }
+        
+        ctx.restore();
+    }
+    
+    // Check if a point is on any green zone
+    isPointOnGreen(x, y, greenZones) {
+        for (const zone of greenZones) {
+            if (zone.shape === 'polygon' && zone.points) {
+                if (isPointInPolygon(x, y, zone.points)) return true;
+            } else if (zone.shape === 'ellipse') {
+                const dx = (x - zone.cx) / zone.rx;
+                const dy = (y - zone.cy) / zone.ry;
+                if (dx * dx + dy * dy <= 1) return true;
+            } else if (zone.shape === 'rect') {
+                if (x >= zone.x && x <= zone.x + zone.width &&
+                    y >= zone.y && y <= zone.y + zone.height) return true;
+            }
+        }
+        return false;
+    }
+    
+    // Fast terrain normal calculation using bilinear interpolation
+    calculateTerrainNormalFast(grid, bounds, worldX, worldY, delta, gridScaleX, gridScaleY) {
+        // Get elevations using fast bilinear interpolation
+        const elevRight = this.getElevationBilinear(grid, bounds, worldX + delta, worldY);
+        const elevLeft = this.getElevationBilinear(grid, bounds, worldX - delta, worldY);
+        const elevUp = this.getElevationBilinear(grid, bounds, worldX, worldY + delta);
+        const elevDown = this.getElevationBilinear(grid, bounds, worldX, worldY - delta);
         
         // Calculate gradient
         const dzdx = (elevRight - elevLeft) / (2 * delta);
@@ -721,8 +865,8 @@ export class World {
         };
     }
     
-    // Bicubic interpolation for smooth elevation sampling
-    getElevationBicubic(grid, bounds, worldX, worldY) {
+    // Fast bilinear interpolation for elevation sampling
+    getElevationBilinear(grid, bounds, worldX, worldY) {
         // Convert world to grid coordinates
         const gx = ((worldX - bounds.minX) / (bounds.maxX - bounds.minX)) * (grid.cols - 1);
         const gy = ((worldY - bounds.minY) / (bounds.maxY - bounds.minY)) * (grid.rows - 1);
@@ -732,39 +876,30 @@ export class World {
         const xf = gx - xi;
         const yf = gy - yi;
         
-        // Get value with bounds clamping
-        const getValue = (c, r) => {
-            const cc = Math.max(0, Math.min(grid.cols - 1, c));
-            const rr = Math.max(0, Math.min(grid.rows - 1, r));
-            return grid.data[rr][cc];
-        };
+        // Clamp indices
+        const x0 = Math.max(0, Math.min(grid.cols - 1, xi));
+        const x1 = Math.max(0, Math.min(grid.cols - 1, xi + 1));
+        const y0 = Math.max(0, Math.min(grid.rows - 1, yi));
+        const y1 = Math.max(0, Math.min(grid.rows - 1, yi + 1));
         
-        // Catmull-Rom cubic interpolation
-        const cubic = (p0, p1, p2, p3, t) => {
-            const t2 = t * t;
-            const t3 = t2 * t;
-            return 0.5 * (
-                (2 * p1) +
-                (-p0 + p2) * t +
-                (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-                (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-            );
-        };
+        // Bilinear interpolation (4 lookups instead of 16)
+        const v00 = grid.data[y0][x0];
+        const v10 = grid.data[y0][x1];
+        const v01 = grid.data[y1][x0];
+        const v11 = grid.data[y1][x1];
         
-        // Interpolate 4 rows
-        const row0 = cubic(getValue(xi-1, yi-1), getValue(xi, yi-1), getValue(xi+1, yi-1), getValue(xi+2, yi-1), xf);
-        const row1 = cubic(getValue(xi-1, yi), getValue(xi, yi), getValue(xi+1, yi), getValue(xi+2, yi), xf);
-        const row2 = cubic(getValue(xi-1, yi+1), getValue(xi, yi+1), getValue(xi+1, yi+1), getValue(xi+2, yi+1), xf);
-        const row3 = cubic(getValue(xi-1, yi+2), getValue(xi, yi+2), getValue(xi+1, yi+2), getValue(xi+2, yi+2), xf);
+        const v0 = v00 + (v10 - v00) * xf;
+        const v1 = v01 + (v11 - v01) * xf;
         
-        // Interpolate column
-        return cubic(row0, row1, row2, row3, yf);
+        return v0 + (v1 - v0) * yf;
     }
     
     // Calculate terrain normal at a world position (used by other code)
     calculateTerrainNormal(worldX, worldY, bounds) {
         const grid = this.course.elevationGrid;
-        return this.calculateTerrainNormalSmooth(grid, bounds, worldX, worldY);
+        return this.calculateTerrainNormalFast(grid, bounds, worldX, worldY, 0.5, 
+            (grid.cols - 1) / (bounds.maxX - bounds.minX),
+            (grid.rows - 1) / (bounds.maxY - bounds.minY));
     }
 
     // No longer needed - terrain colors are in texture now
@@ -785,11 +920,12 @@ export class World {
             });
         }
 
-        // Process bunkers - create bowl-shaped depressions
+        // Process bunkers - create realistic depressions with flat floor and steep walls
         if (terrain.bunker) {
-            terrain.bunker.forEach(feature => {
+            terrain.bunker.forEach((feature) => {
                 if (feature.shape === 'polygon' && feature.points) {
-                    this.depressBunker(grid, bounds, feature.points, feature.depth || 12);
+                    // depth in elevation units: 5 = typical bunker, 8 = deep pot bunker
+                    this.depressBunker(grid, bounds, feature.points, feature.depth || 5);
                 }
             });
         }
@@ -808,37 +944,51 @@ export class World {
         if (!this.waterBodies) this.waterBodies = [];
         this.waterBodies.push({ points, waterLevel });
 
+        // Find bounding box of polygon to limit iteration
+        let polyMinX = Infinity, polyMaxX = -Infinity;
+        let polyMinY = Infinity, polyMaxY = -Infinity;
+        for (const p of points) {
+            polyMinX = Math.min(polyMinX, p[0]);
+            polyMaxX = Math.max(polyMaxX, p[0]);
+            polyMinY = Math.min(polyMinY, p[1]);
+            polyMaxY = Math.max(polyMaxY, p[1]);
+        }
+        
+        // Add transition distance to bounding box
+        const transitionDist = 5;
+        polyMinX -= transitionDist;
+        polyMaxX += transitionDist;
+        polyMinY -= transitionDist;
+        polyMaxY += transitionDist;
+        
+        // Convert to grid indices
+        const worldWidth = bounds.maxX - bounds.minX;
+        const worldHeight = bounds.maxY - bounds.minY;
+        const startCol = Math.max(0, Math.floor((polyMinX - bounds.minX) / worldWidth * (grid.cols - 1)));
+        const endCol = Math.min(grid.cols - 1, Math.ceil((polyMaxX - bounds.minX) / worldWidth * (grid.cols - 1)));
+        const startRow = Math.max(0, Math.floor((polyMinY - bounds.minY) / worldHeight * (grid.rows - 1)));
+        const endRow = Math.min(grid.rows - 1, Math.ceil((polyMaxY - bounds.minY) / worldHeight * (grid.rows - 1)));
+
         // Carve terrain inside water to be below water surface
         const waterDepth = 2; // How deep below surface
         
-        for (let row = 0; row < grid.rows; row++) {
-            for (let col = 0; col < grid.cols; col++) {
-                const worldX = bounds.minX + (col / (grid.cols - 1)) * (bounds.maxX - bounds.minX);
-                const worldY = bounds.minY + (row / (grid.rows - 1)) * (bounds.maxY - bounds.minY);
+        for (let row = startRow; row <= endRow; row++) {
+            for (let col = startCol; col <= endCol; col++) {
+                const worldX = bounds.minX + (col / (grid.cols - 1)) * worldWidth;
+                const worldY = bounds.minY + (row / (grid.rows - 1)) * worldHeight;
                 
                 if (isPointInPolygon(worldX, worldY, points)) {
                     // Set terrain below water level
                     grid.data[row][col] = waterLevel - waterDepth;
-                }
-            }
-        }
-
-        // Pull down surrounding terrain to meet water edge
-        const transitionDist = 5;
-        
-        for (let row = 0; row < grid.rows; row++) {
-            for (let col = 0; col < grid.cols; col++) {
-                const worldX = bounds.minX + (col / (grid.cols - 1)) * (bounds.maxX - bounds.minX);
-                const worldY = bounds.minY + (row / (grid.rows - 1)) * (bounds.maxY - bounds.minY);
-                
-                if (isPointInPolygon(worldX, worldY, points)) continue;
-                
-                const dist = distanceToPolygon(worldX, worldY, points);
-                if (dist < transitionDist) {
-                    const currentElev = grid.data[row][col];
-                    if (currentElev > waterLevel) {
-                        const t = dist / transitionDist;
-                        grid.data[row][col] = waterLevel + (currentElev - waterLevel) * smoothstep(t);
+                } else {
+                    // Check for transition zone
+                    const dist = distanceToPolygon(worldX, worldY, points);
+                    if (dist < transitionDist) {
+                        const currentElev = grid.data[row][col];
+                        if (currentElev > waterLevel) {
+                            const t = dist / transitionDist;
+                            grid.data[row][col] = waterLevel + (currentElev - waterLevel) * smoothstep(t);
+                        }
                     }
                 }
             }
@@ -869,10 +1019,13 @@ export class World {
 
         const geometry = new THREE.ShapeGeometry(shape);
         
-        const material = new THREE.MeshLambertMaterial({
-            color: 0x3498db,
+        // Use Phong material for specular highlights on water
+        const material = new THREE.MeshPhongMaterial({
+            color: 0x2980b9,        // Deeper, more vibrant blue
+            specular: 0x88ccff,     // Light blue specular highlight
+            shininess: 100,         // Very shiny surface
             transparent: true,
-            opacity: 0.85,
+            opacity: 0.9,
             side: THREE.DoubleSide
         });
 
@@ -884,9 +1037,17 @@ export class World {
         this.terrainOverlays.push(mesh);
     }
 
-    // Create bowl-shaped depression for bunker
-    // Asymmetric: steeper face toward green if closer to green, away from tee if closer to tee
+    // Create realistic bunker depression with flat floor, steep flash face, and raised lip
+    // Models real golf bunker characteristics:
+    // - Flat sandy floor (not a smooth bowl)
+    // - Steep "flash" face toward green (60-80 degrees)
+    // - Gentler entry slope from fairway side
+    // - Raised lip around edges (especially on green side)
     depressBunker(grid, bounds, points, depth) {
+        // Deep bunkers for dramatic effect
+        // Default depth of 15 units creates a very pronounced depression
+        const bunkerDepth = depth || 15;
+        
         // Find centroid and bounding box of bunker
         let cx = 0, cy = 0;
         let minX = Infinity, maxX = -Infinity;
@@ -905,66 +1066,139 @@ export class World {
         
         const radiusX = (maxX - minX) / 2;
         const radiusY = (maxY - minY) / 2;
+        const avgRadius = (radiusX + radiusY) / 2;
         
-        // Get tee and green positions for asymmetry
+        // Get tee and green positions for flash face orientation
         let teePos = { x: 0, y: 0 };
         let greenPos = { x: 0, y: 0 };
         
         if (this.course && this.course.holes && this.course.holes.length > 0) {
-            const hole = this.course.holes[0]; // Use first hole for now
+            const hole = this.course.holes[0];
             if (hole.tee) teePos = hole.tee;
             if (hole.hole) greenPos = hole.hole;
         }
         
-        // Determine if bunker is closer to tee or green
+        // Calculate distances from bunker to tee and green
         const distToTee = Math.sqrt((cx - teePos.x) ** 2 + (cy - teePos.y) ** 2);
         const distToGreen = Math.sqrt((cx - greenPos.x) ** 2 + (cy - greenPos.y) ** 2);
-        const closerToGreen = distToGreen < distToTee;
+        const isGreensideBunker = distToGreen < distToTee;
         
-        // Calculate direction for steep face
-        // If closer to tee: steep face is AWAY from tee (toward green direction)
-        // If closer to green: steep face is TOWARD green
-        const targetPos = closerToGreen ? greenPos : teePos;
-        let dirX = targetPos.x - cx;
-        let dirY = targetPos.y - cy;
-        const dirMag = Math.sqrt(dirX ** 2 + dirY ** 2) || 1;
-        dirX /= dirMag;
-        dirY /= dirMag;
-        
-        // Flip direction if closer to tee (steep face away from tee)
-        if (!closerToGreen) {
-            dirX = -dirX;
-            dirY = -dirY;
-        }
+        // Determine flash face direction based on bunker location:
+        // - Fairway bunkers (closer to tee): flash face points TOWARD green (away from tee)
+        // - Greenside bunkers (closer to green): flash face points TOWARD green
+        // Both cases: flash face direction is toward green
+        let flashDirX = greenPos.x - cx;
+        let flashDirY = greenPos.y - cy;
+        const flashDirMag = Math.sqrt(flashDirX ** 2 + flashDirY ** 2) || 1;
+        flashDirX /= flashDirMag;
+        flashDirY /= flashDirMag;
 
-        for (let row = 0; row < grid.rows; row++) {
-            for (let col = 0; col < grid.cols; col++) {
-                const worldX = bounds.minX + (col / (grid.cols - 1)) * (bounds.maxX - bounds.minX);
-                const worldY = bounds.minY + (row / (grid.rows - 1)) * (bounds.maxY - bounds.minY);
+        // Convert bounding box to grid indices with generous padding
+        const worldWidth = bounds.maxX - bounds.minX;
+        const worldHeight = bounds.maxY - bounds.minY;
+        const cellWidth = worldWidth / (grid.cols - 1);
+        const cellHeight = worldHeight / (grid.rows - 1);
+        
+        // Expand bounds by lip extent plus one cell for safety
+        const lipExtent = avgRadius * 0.5;
+        const padding = Math.max(lipExtent, cellWidth, cellHeight);
+        
+        const startCol = Math.max(0, Math.floor((minX - padding - bounds.minX) / worldWidth * (grid.cols - 1)));
+        const endCol = Math.min(grid.cols - 1, Math.ceil((maxX + padding - bounds.minX) / worldWidth * (grid.cols - 1)));
+        const startRow = Math.max(0, Math.floor((minY - padding - bounds.minY) / worldHeight * (grid.rows - 1)));
+        const endRow = Math.min(grid.rows - 1, Math.ceil((maxY + padding - bounds.minY) / worldHeight * (grid.rows - 1)));
+
+        // Bunker profile parameters
+        const floorRadius = 0.45;      // Inner 45% is flat floor
+        const transitionStart = 0.45;  // Wall transition starts here
+        const transitionEnd = 1.0;     // Wall ends at bunker edge
+        const lipHeight = bunkerDepth * 0.5; // Lip is 50% of depth for visibility
+        const lipWidth = 0.35;         // Lip extends 35% beyond edge
+
+        for (let row = startRow; row <= endRow; row++) {
+            for (let col = startCol; col <= endCol; col++) {
+                const worldX = bounds.minX + (col / (grid.cols - 1)) * worldWidth;
+                const worldY = bounds.minY + (row / (grid.rows - 1)) * worldHeight;
                 
-                if (isPointInPolygon(worldX, worldY, points)) {
-                    // Calculate distance from center (normalized)
-                    const dx = (worldX - cx) / radiusX;
-                    const dy = (worldY - cy) / radiusY;
-                    const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+                // Calculate signed distance to bunker (negative = inside, positive = outside)
+                const distToBunker = distanceToPolygon(worldX, worldY, points);
+                const insideBunker = isPointInPolygon(worldX, worldY, points);
+                const signedDist = insideBunker ? -distToBunker : distToBunker;
+                
+                // Calculate normalized distance from center (for shape profile)
+                const dx = (worldX - cx) / radiusX;
+                const dy = (worldY - cy) / radiusY;
+                const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+                
+                // Calculate direction from center for asymmetry
+                const offsetX = worldX - cx;
+                const offsetY = worldY - cy;
+                const offsetMag = Math.sqrt(offsetX ** 2 + offsetY ** 2) || 1;
+                
+                // Dot product with flash face direction
+                // Positive = toward flash face (steep side)
+                // Negative = toward entry side (gentle slope)
+                const towardFlashFace = (offsetX * flashDirX + offsetY * flashDirY) / offsetMag;
+                
+                // Use a blend zone at the bunker edge for smoother transitions
+                const edgeBlendWidth = Math.max(cellWidth, cellHeight) * 0.5;
+                
+                if (signedDist < edgeBlendWidth) {
+                    // Inside bunker or in edge blend zone
+                    let elevationChange = 0;
                     
-                    // Calculate asymmetry factor based on position relative to steep face direction
-                    const offsetX = worldX - cx;
-                    const offsetY = worldY - cy;
-                    const offsetMag = Math.sqrt(offsetX ** 2 + offsetY ** 2) || 1;
-                    // Dot product gives -1 to 1: positive = toward steep face
-                    const asymmetryFactor = (offsetX * dirX + offsetY * dirY) / offsetMag;
+                    // Calculate blend factor (1 = fully inside, 0 = at edge of blend zone)
+                    const blendFactor = signedDist < 0 ? 1.0 : 1.0 - (signedDist / edgeBlendWidth);
                     
-                    // Asymmetric depth multiplier (0.65 to 1.35 range)
-                    const asymmetryStrength = 0.35;
-                    const depthMultiplier = 1 + (asymmetryFactor * asymmetryStrength);
+                    if (distFromCenter <= floorRadius) {
+                        // Flat floor zone - full depth with slight variation for realism
+                        const floorVariation = 0.03 * Math.sin(worldX * 2) * Math.cos(worldY * 2);
+                        elevationChange = -bunkerDepth * (1 + floorVariation);
+                    } else if (distFromCenter < transitionEnd) {
+                        // Wall transition zone with strong asymmetry
+                        const wallProgress = (distFromCenter - transitionStart) / (transitionEnd - transitionStart);
+                        const clampedProgress = Math.max(0, Math.min(1, wallProgress));
+                        
+                        // Very asymmetric wall steepness:
+                        // - Flash face: extremely steep (power 0.15 = nearly vertical)
+                        // - Entry side: gentle slope (power 2.0 = gradual ramp)
+                        const flashFaceSteepness = 0.15;  // Lower = steeper (nearly vertical)
+                        const entrySteepness = 2.5;       // Higher = gentler slope
+                        
+                        // Interpolate steepness based on direction toward flash face
+                        let steepnessFactor;
+                        if (towardFlashFace > 0) {
+                            // On flash face side - interpolate toward steep
+                            steepnessFactor = 1 - towardFlashFace * (1 - flashFaceSteepness);
+                        } else {
+                            // On entry side - interpolate toward gentle
+                            steepnessFactor = 1 + (-towardFlashFace) * (entrySteepness - 1);
+                        }
+                        
+                        const wallCurve = Math.pow(clampedProgress, steepnessFactor);
+                        elevationChange = -bunkerDepth * (1 - wallCurve);
+                    } else {
+                        // Beyond transition but in blend zone - apply partial depth
+                        elevationChange = -bunkerDepth * 0.1;
+                    }
                     
-                    // Steeper bowl shape using power curve
-                    // cos^0.7 creates steeper walls near edges
-                    const baseCurve = Math.cos(Math.min(distFromCenter, 1) * Math.PI / 2);
-                    const steepCurve = Math.pow(baseCurve, 0.7);
+                    grid.data[row][col] += elevationChange * blendFactor;
                     
-                    grid.data[row][col] -= depth * steepCurve * depthMultiplier;
+                } else if (signedDist < avgRadius * lipWidth) {
+                    // Lip zone - raised edge outside bunker
+                    const lipProgress = signedDist / (avgRadius * lipWidth);
+                    const clampedLipProgress = Math.max(0, Math.min(1, lipProgress));
+                    
+                    // Lip is much more pronounced on flash face side
+                    const lipMultiplier = towardFlashFace > 0 
+                        ? 1 + towardFlashFace * 1.0  // Up to 2x on flash face
+                        : Math.max(0.3, 1 + towardFlashFace * 0.7); // Down to 0.3x on entry
+                    
+                    // Smooth lip profile (rises then falls)
+                    const lipProfile = Math.sin((1 - clampedLipProgress) * Math.PI);
+                    const lipElevation = lipHeight * lipProfile * lipMultiplier;
+                    
+                    grid.data[row][col] += lipElevation;
                 }
             }
         }
@@ -1008,7 +1242,7 @@ export class World {
         });
     }
     
-    // Create a sprinkler head marker at position
+    // Create a sprinkler head marker at position (low-poly for pixelated look)
     // Rendered as a black circle on the ground, visible above terrain
     createSprinklerHeadMarker(worldX, worldY) {
         const group = new THREE.Group();
@@ -1018,12 +1252,12 @@ export class World {
         const z = (worldY - 50) * WORLD_SCALE;
         const y = elevation * 0.33 + 0.05; // Slightly above terrain to be visible
         
-        // Create a flat black disc for the sprinkler head
+        // Create a flat black disc for the sprinkler head (low-poly)
         // Make it fairly large (about 1 yard diameter) so caddies can see it
         const radius = 0.5; // 0.5 yards radius = 1 yard diameter
         
-        // Main disc - black with slight gray center
-        const discGeom = new THREE.CircleGeometry(radius, 24);
+        // Main disc - black with slight gray center (low-poly)
+        const discGeom = new THREE.CircleGeometry(radius, 6);
         const discMat = new THREE.MeshBasicMaterial({ 
             color: 0x111111,
             side: THREE.DoubleSide,
@@ -1033,8 +1267,8 @@ export class World {
         disc.rotation.x = -Math.PI / 2; // Lay flat on ground
         group.add(disc);
         
-        // Inner ring for visibility
-        const innerRingGeom = new THREE.RingGeometry(radius * 0.3, radius * 0.5, 24);
+        // Inner ring for visibility (low-poly)
+        const innerRingGeom = new THREE.RingGeometry(radius * 0.3, radius * 0.5, 6);
         const innerRingMat = new THREE.MeshBasicMaterial({ 
             color: 0x333333,
             side: THREE.DoubleSide
@@ -1044,8 +1278,8 @@ export class World {
         innerRing.position.y = 0.01; // Slightly above main disc
         group.add(innerRing);
         
-        // Center dot
-        const centerGeom = new THREE.CircleGeometry(radius * 0.15, 16);
+        // Center dot (low-poly)
+        const centerGeom = new THREE.CircleGeometry(radius * 0.15, 4);
         const centerMat = new THREE.MeshBasicMaterial({ 
             color: 0x444444,
             side: THREE.DoubleSide
@@ -1134,7 +1368,7 @@ export class World {
         return findPointAtYardageFromRef(centreline, greenFront, yards);
     }
     
-    // Create a yardage marker post at position
+    // Create a yardage marker post at position (low-poly for pixelated look)
     createYardageMarker(worldX, worldY, yards, color) {
         const group = new THREE.Group();
         
@@ -1147,17 +1381,17 @@ export class World {
         const postHeight = 1.2;
         const postRadius = 0.15;
         
-        // Main post
-        const postGeom = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 8);
-        const postMat = new THREE.MeshLambertMaterial({ color: color });
+        // Main post (low-poly)
+        const postGeom = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 4);
+        const postMat = new THREE.MeshLambertMaterial({ color: color, flatShading: true });
         const post = new THREE.Mesh(postGeom, postMat);
         post.position.y = postHeight / 2;
         post.castShadow = true;
         group.add(post);
         
-        // Top cap (slightly larger, colored disc)
-        const capGeom = new THREE.CylinderGeometry(postRadius * 1.5, postRadius * 1.5, 0.1, 16);
-        const capMat = new THREE.MeshLambertMaterial({ color: color });
+        // Top cap (low-poly box instead of cylinder)
+        const capGeom = new THREE.BoxGeometry(postRadius * 3, 0.1, postRadius * 3);
+        const capMat = new THREE.MeshLambertMaterial({ color: color, flatShading: true });
         const cap = new THREE.Mesh(capGeom, capMat);
         cap.position.y = postHeight + 0.05;
         group.add(cap);
@@ -1168,7 +1402,7 @@ export class World {
     }
 
 
-    // Create a flag marker at position
+    // Create a flag marker at position (low-poly for pixelated look)
     createFlagMarker(worldX, worldY, color) {
         const group = new THREE.Group();
         
@@ -1177,22 +1411,25 @@ export class World {
         const z = (worldY - 50) * WORLD_SCALE;
         const y = elevation * 0.33;
 
-        // Real sizes: pole ~7ft tall (2.3 yards), 0.5" diameter (0.014 yards)
-        // Flag ~14"x20" (0.4 x 0.55 yards)
-        const poleHeight = 2.3;
-        const poleRadius = 0.02;
+        // Larger flag for better visibility at distance
+        const poleHeight = 3.5;
+        const poleRadius = 0.15;
         
-        // Pole
-        const poleGeom = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 8);
-        const poleMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        // Pole (low-poly) - bright white with emissive for visibility
+        const poleGeom = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 4);
+        const poleMat = new THREE.MeshLambertMaterial({ 
+            color: 0xffffff, 
+            emissive: 0x444444,
+            flatShading: true 
+        });
         const pole = new THREE.Mesh(poleGeom, poleMat);
         pole.position.y = poleHeight / 2;
         group.add(pole);
 
-        // Flag cloth with segments for animation
-        const flagWidth = 0.55;
-        const flagHeight = 0.4;
-        const flagGeom = new THREE.PlaneGeometry(flagWidth, flagHeight, 8, 4);
+        // Flag cloth - larger and brighter
+        const flagWidth = 1.2;
+        const flagHeight = 0.8;
+        const flagGeom = new THREE.PlaneGeometry(flagWidth, flagHeight, 4, 2);
         
         // Shift geometry so left edge is at origin (pivot at pole)
         const posAttr = flagGeom.attributes.position;
@@ -1201,9 +1438,12 @@ export class World {
         }
         posAttr.needsUpdate = true;
         
+        // Primary red with emissive glow to stand out against fog
         const flagMat = new THREE.MeshLambertMaterial({ 
-            color: color, 
-            side: THREE.DoubleSide 
+            color: 0xff0000, 
+            emissive: 0x660000,
+            side: THREE.DoubleSide,
+            flatShading: true
         });
         const flag = new THREE.Mesh(flagGeom, flagMat);
         flag.position.set(poleRadius, poleHeight - flagHeight / 2 - 0.05, 0);
@@ -1213,10 +1453,13 @@ export class World {
         this.flagMesh = flag;
         this.flagGeometry = flagGeom;
         this.flagOriginalPositions = flagGeom.attributes.position.array.slice();
+        
+        // Store reference to flag group for distance-based scaling
+        this.flagGroup = group;
 
-        // Hole cup - 4.25" diameter (0.12 yards), as a dark ring on surface
+        // Hole cup - 4.25" diameter (0.12 yards), as a dark ring on surface (low-poly)
         const cupRadius = 0.06;
-        const cupGeom = new THREE.RingGeometry(cupRadius * 0.7, cupRadius, 16);
+        const cupGeom = new THREE.RingGeometry(cupRadius * 0.7, cupRadius, 6);
         const cupMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
         const cup = new THREE.Mesh(cupGeom, cupMat);
         cup.rotation.x = -Math.PI / 2; // Lay flat on ground
@@ -1228,9 +1471,29 @@ export class World {
         return group;
     }
     
-    // Set wind for animations
-    setWind(wind) {
-        this.wind = wind;
+    // Update flag scale based on camera distance - ensures minimum visible size
+    updateFlagScale() {
+        if (!this.flagGroup || !this.camera) return;
+        
+        const flagPos = this.flagGroup.position;
+        const camPos = this.camera.position;
+        const distance = flagPos.distanceTo(camPos);
+        
+        // Scale to maintain minimum screen size
+        // At 10 units: scale = 1 (normal size)
+        // Beyond that: scale proportionally to distance to maintain apparent size
+        const baseDistance = 10;
+        const minScale = 1;
+        
+        let scale;
+        if (distance <= baseDistance) {
+            scale = minScale;
+        } else {
+            // Scale proportionally to distance to maintain constant apparent size
+            scale = distance / baseDistance;
+        }
+        
+        this.flagGroup.scale.set(scale, scale, scale);
     }
     
     // Update flag animation based on wind
@@ -1240,15 +1503,17 @@ export class World {
         const positions = this.flagGeometry.attributes.position.array;
         const original = this.flagOriginalPositions;
         
-        const windSpeed = this.wind?.speed || 0;
-        const windDirDeg = this.wind?.direction || 0;
+        // Get wind data from unified wind system
+        const wind = getWindForVisuals();
+        const windSpeed = wind.speed;
+        const windDirDeg = wind.direction;
         
         // Flag angle based on wind speed (max 90 degrees)
         const flagAngleDeg = Math.min(windSpeed * 4, 90);
         const flagAngleRad = (flagAngleDeg * Math.PI) / 180;
         const windIntensity = Math.min(windSpeed / 20, 1);
         
-        // Wave parameters (scaled for smaller flag)
+        // Wave parameters (scaled for flag)
         const waveAmplitude = 0.005 + windIntensity * 0.02;
         const waveFrequency = 6 + windIntensity * 4;
         const waveSpeed = 4 + windIntensity * 3;
@@ -1288,7 +1553,7 @@ export class World {
         this.flagMesh.rotation.y = windDirRad;
     }
 
-    // Create tee marker
+    // Create tee marker (low-poly boxes for pixelated look)
     createTeeMarker(worldX, worldY) {
         const group = new THREE.Group();
         
@@ -1299,7 +1564,7 @@ export class World {
 
         // Tee markers (two small posts) - 5x wider spacing
         const markerGeom = new THREE.BoxGeometry(0.3, 0.8, 0.3);
-        const markerMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+        const markerMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
         
         const marker1 = new THREE.Mesh(markerGeom, markerMat);
         marker1.position.set(-7.5, 0.4, 0);
@@ -1362,11 +1627,13 @@ export class World {
 
     // Animate trees, flag, and clouds (sway in wind)
     update(time) {
-        const windSpeed = this.wind?.speed || 0;
+        // Get wind data from unified wind system
+        const wind = getWindForVisuals();
+        const windSpeed = wind.speed;
         // Wind direction where wind blows TO (opposite of where it comes FROM)
         // wind.direction is where wind comes FROM, so negate to get blow direction
         // Three.js: 0 rad = +Z (south), π/2 = +X (east)
-        const windDirRad = -((this.wind?.direction || 0) * Math.PI / 180);
+        const windDirRad = -(wind.direction * Math.PI / 180);
         
         // Tree sway based on wind
         this.trees.forEach(tree => {
@@ -1418,6 +1685,9 @@ export class World {
         // Flag animation
         this.updateFlagAnimation(time);
         
+        // Update flag scale based on camera distance
+        this.updateFlagScale();
+        
         // Cloud animation - drift in wind direction at wind-relative speed
         this.clouds.forEach((cloud, i) => {
             // Base cloud speed scaled by wind speed
@@ -1436,22 +1706,22 @@ export class World {
             cloud.group.position.z += Math.sin(time * 0.15 + i * 0.7) * wobbleAmount;
             
             // Wrap clouds around when they drift too far
-            const maxDist = SKY_CONFIG.cloudSpread * 1.5;
+            const maxDist = SKY.CLOUD_SPREAD * 1.5;
             const dist = Math.sqrt(cloud.group.position.x ** 2 + cloud.group.position.z ** 2);
             if (dist > maxDist) {
                 // Reset to opposite side (upwind)
-                cloud.group.position.x = -Math.sin(windDirRad) * SKY_CONFIG.cloudSpread * 0.8;
-                cloud.group.position.z = -Math.cos(windDirRad) * SKY_CONFIG.cloudSpread * 0.8;
+                cloud.group.position.x = -Math.sin(windDirRad) * SKY.CLOUD_SPREAD * 0.8;
+                cloud.group.position.z = -Math.cos(windDirRad) * SKY.CLOUD_SPREAD * 0.8;
                 // Add some randomness to the reset position
                 const perpAngle = windDirRad + Math.PI / 2;
-                const perpOffset = (Math.random() - 0.5) * SKY_CONFIG.cloudSpread;
+                const perpOffset = (Math.random() - 0.5) * SKY.CLOUD_SPREAD;
                 cloud.group.position.x += Math.sin(perpAngle) * perpOffset;
                 cloud.group.position.z += Math.cos(perpAngle) * perpOffset;
             }
             
             // Subtle vertical bob
-            cloud.group.position.y = SKY_CONFIG.cloudMinHeight + 
-                (SKY_CONFIG.cloudMaxHeight - SKY_CONFIG.cloudMinHeight) * 0.5 +
+            cloud.group.position.y = SKY.CLOUD_MIN_HEIGHT + 
+                (SKY.CLOUD_MAX_HEIGHT - SKY.CLOUD_MIN_HEIGHT) * 0.5 +
                 Math.sin(time * 0.2 + i * 0.5) * 10;
         });
     }

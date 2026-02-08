@@ -1,5 +1,6 @@
 // Golfer stats and variability
-import { shotClubs, gaussianRandom, rollMissType } from './clubs.js';
+import { shotClubs, rollMissType } from './clubs.js';
+import { gaussianRandom } from './utils.js';
 
 export const golfer = {
     name: 'Player',

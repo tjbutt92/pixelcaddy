@@ -2,6 +2,7 @@
 // 3 levels of grass coverage + perfect + 2 bunker lies
 
 import { TerrainType } from './terrain.js';
+import { getClubLieDifficulty } from './utils.js';
 
 // Simplified lie types
 export const LieType = {
@@ -22,9 +23,9 @@ export const LieType = {
 // Lie data with effects on shot physics
 export const lieData = {
     [LieType.PERFECT]: {
-        name: 'Perfect Lie',
+        name: 'PL',
         description: 'Ball sitting up perfectly - full contact',
-        image: '⛳',
+        image: '',
         terrain: [TerrainType.TEE, TerrainType.FAIRWAY],
         effects: {
             distanceMultiplier: 1.0,
@@ -35,9 +36,9 @@ export const lieData = {
         }
     },
     [LieType.GOOD]: {
-        name: 'Good Lie',
+        name: 'FL',
         description: 'Ball visible, clean contact expected',
-        image: '🟢',
+        image: '',
         terrain: [TerrainType.FAIRWAY, TerrainType.ROUGH],
         effects: {
             distanceMultiplier: 0.95,
@@ -48,9 +49,9 @@ export const lieData = {
         }
     },
     [LieType.SITTING_DOWN]: {
-        name: 'Sitting Down',
+        name: 'RL',
         description: 'Ball nestled in grass - some interference',
-        image: '🌿',
+        image: '',
         terrain: [TerrainType.ROUGH],
         effects: {
             distanceMultiplier: 0.85,
@@ -61,9 +62,9 @@ export const lieData = {
         }
     },
     [LieType.BURIED]: {
-        name: 'Buried Lie',
+        name: 'BL',
         description: 'Ball deep in grass - wedge recommended',
-        image: '⬇️',
+        image: '',
         terrain: [TerrainType.ROUGH],
         effects: {
             distanceMultiplier: 0.6,
@@ -74,9 +75,9 @@ export const lieData = {
         }
     },
     [LieType.BUNKER_CLEAN]: {
-        name: 'Clean Bunker Lie',
+        name: 'SL',
         description: 'Ball sitting on top of sand',
-        image: '🏖️',
+        image: '',
         terrain: [TerrainType.BUNKER],
         effects: {
             distanceMultiplier: 0.85,
@@ -87,9 +88,9 @@ export const lieData = {
         }
     },
     [LieType.BUNKER_PLUGGED]: {
-        name: 'Plugged',
+        name: 'PG',
         description: 'Ball buried in sand - dig it out',
-        image: '🍳',
+        image: '',
         terrain: [TerrainType.BUNKER],
         effects: {
             distanceMultiplier: 0.55,
@@ -100,9 +101,9 @@ export const lieData = {
         }
     },
     [LieType.GREEN]: {
-        name: 'On Green',
+        name: 'GR',
         description: 'Ball on the putting surface',
-        image: '⛳',
+        image: '',
         terrain: [TerrainType.GREEN],
         effects: {
             distanceMultiplier: 1.0,
@@ -197,35 +198,6 @@ export function getLieMissChance(lie, clubName) {
     const clubDifficulty = getClubLieDifficulty(clubName, lie.type);
     
     return baseMissIncrease * (1 + clubDifficulty * 0.5);
-}
-
-/**
- * Get club difficulty multiplier for a given lie
- */
-function getClubLieDifficulty(clubName, lieType) {
-    const clubDifficulty = {
-        'Driver': 1.0,
-        '3 Wood': 0.9,
-        '5 Wood': 0.8,
-        '4 Iron': 0.7,
-        '5 Iron': 0.6,
-        '6 Iron': 0.5,
-        '7 Iron': 0.4,
-        '8 Iron': 0.3,
-        '9 Iron': 0.2,
-        'PW': 0.15,
-        'GW': 0.1,
-        'SW': 0.05,
-        'LW': 0.1,
-        'Putter': 0
-    };
-    
-    // Sand wedge is designed for bunkers
-    if (lieType.includes('bunker') && clubName === 'SW') {
-        return 0;
-    }
-    
-    return clubDifficulty[clubName] || 0.5;
 }
 
 /**
