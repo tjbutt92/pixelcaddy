@@ -72,7 +72,7 @@ export function renderCourseTab(container, hole) {
                             </svg>
                         </div>
                         <div class="wind-info">
-                            <div class="wind-speed">${wind.speed} mph</div>
+                            <div class="wind-speed">${Math.round(wind.speed)} mph</div>
                             <div class="wind-direction">${wind.direction}° ${compassDir}</div>
                         </div>
                     </div>
