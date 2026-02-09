@@ -30,8 +30,11 @@ function simulatePutt(distanceFeet, slope = { x: 0, y: 0 }, aimAngle = 0) {
     let x = 0;
     let y = 0;
     
-    // Slope effect - strong enough for two-tier greens
-    const slopeEffect = 0.025 * stimpFactor;
+    // Split slope effect for realistic physics:
+    // - Parallel effect (uphill/downhill): affects ball speed
+    // - Perpendicular effect (cross-slope): affects break
+    const parallelSlopeEffect = 0.016 * stimpFactor;
+    const perpSlopeEffect = 0.005 * stimpFactor;
     
     let t = 0;
     let maxSpeed = initialSpeed;
@@ -52,9 +55,27 @@ function simulatePutt(distanceFeet, slope = { x: 0, y: 0 }, aimAngle = 0) {
             speedLog.push({ t: t.toFixed(2), speed: speed.toFixed(4) });
         }
         
-        // Slope acceleration (downhill = negative slope values accelerate)
-        const slopeAccelX = -slope.x * slopeEffect;
-        const slopeAccelY = -slope.y * slopeEffect;
+        // Calculate direction of travel and perpendicular
+        const dirX = velX / speed;
+        const dirY = velY / speed;
+        const perpX = -dirY;
+        const perpY = dirX;
+        
+        // Slope vector (negative because slope points uphill, gravity pulls downhill)
+        const slopeVecX = -slope.x;
+        const slopeVecY = -slope.y;
+        
+        // Project slope onto parallel (speed) and perpendicular (break) components
+        const parallelComponent = slopeVecX * dirX + slopeVecY * dirY;
+        const perpComponent = slopeVecX * perpX + slopeVecY * perpY;
+        
+        // Apply different effects to each component
+        const parallelAccel = parallelComponent * parallelSlopeEffect;
+        const perpAccel = perpComponent * perpSlopeEffect;
+        
+        // Convert back to X/Y accelerations
+        const slopeAccelX = parallelAccel * dirX + perpAccel * perpX;
+        const slopeAccelY = parallelAccel * dirY + perpAccel * perpY;
         
         // Rolling friction - decreases at low speeds for two-tier effect
         const speedFactor = Math.min(1, speed / 0.15);
@@ -62,12 +83,8 @@ function simulatePutt(distanceFeet, slope = { x: 0, y: 0 }, aimAngle = 0) {
         const fricAccelX = -(velX / speed) * effectiveFriction;
         const fricAccelY = -(velY / speed) * effectiveFriction;
         
-        // Total acceleration
-        const accelX = slopeAccelX + fricAccelX;
-        const accelY = slopeAccelY + fricAccelY;
-        
-        velX += accelX * dt;
-        velY += accelY * dt;
+        velX += (slopeAccelX + fricAccelX) * dt;
+        velY += (slopeAccelY + fricAccelY) * dt;
         
         x += velX * dt;
         y += velY * dt;
@@ -154,7 +171,8 @@ function simulateTwoTier() {
     const greenSpeed = 12;
     const stimpFactor = greenSpeed / 10;
     const rollingResistance = 0.035 / stimpFactor;
-    const slopeEffect = 0.025 * stimpFactor; // Increased for two-tier effect
+    const parallelSlopeEffect = 0.016 * stimpFactor;
+    const perpSlopeEffect = 0.005 * stimpFactor;
     
     // Ball barely moving (like it just crested a tier)
     const crawlSpeed = 0.02; // Very slow
@@ -175,8 +193,9 @@ function simulateTwoTier() {
     console.log(`Slope: ${slope.y} (steep downhill)`);
     console.log(`Base friction: ${rollingResistance.toFixed(4)}`);
     console.log(`Effective friction at low speed: ${effectiveFriction.toFixed(4)}`);
-    console.log(`Slope accel: ${(slope.y * slopeEffect).toFixed(4)}`);
-    console.log(`Net accel: ${(slope.y * slopeEffect - effectiveFriction).toFixed(4)} (positive = accelerates)`);
+    console.log(`Parallel slope effect: ${parallelSlopeEffect.toFixed(4)}`);
+    console.log(`Slope accel (parallel): ${(slope.y * parallelSlopeEffect).toFixed(4)}`);
+    console.log(`Net accel: ${(slope.y * parallelSlopeEffect - effectiveFriction).toFixed(4)} (positive = accelerates)`);
     
     const speeds = [];
     while (t < 5) {
@@ -187,12 +206,34 @@ function simulateTwoTier() {
             speeds.push({ t: t.toFixed(2), speed: speed.toFixed(4) });
         }
         
-        const slopeAccelY = -slope.y * slopeEffect;
+        // Calculate direction of travel
+        const dirX = velX / speed;
+        const dirY = velY / speed;
+        const perpX = -dirY;
+        const perpY = dirX;
+        
+        // Slope vector (negative because slope points uphill)
+        const slopeVecX = -slope.x;
+        const slopeVecY = -slope.y;
+        
+        // Project slope onto parallel and perpendicular components
+        const parallelComponent = slopeVecX * dirX + slopeVecY * dirY;
+        const perpComponent = slopeVecX * perpX + slopeVecY * perpY;
+        
+        const parallelAccel = parallelComponent * parallelSlopeEffect;
+        const perpAccel = perpComponent * perpSlopeEffect;
+        
+        const slopeAccelX = parallelAccel * dirX + perpAccel * perpX;
+        const slopeAccelY = parallelAccel * dirY + perpAccel * perpY;
+        
         const sf = Math.min(1, speed / 0.15);
         const ef = rollingResistance * (0.3 + 0.7 * sf);
+        const fricAccelX = speed > 0 ? -(velX / speed) * ef : 0;
         const fricAccelY = speed > 0 ? -(velY / speed) * ef : 0;
         
+        velX += (slopeAccelX + fricAccelX) * dt;
         velY += (slopeAccelY + fricAccelY) * dt;
+        x += velX * dt;
         y += velY * dt;
         t += dt;
     }

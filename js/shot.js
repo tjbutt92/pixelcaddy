@@ -12,6 +12,7 @@ import {
 } from './physics.js';
 import { determineLie } from './lie.js';
 import { checkTreeCollision } from './trees.js';
+import { HOLE } from './constants.js';
 
 // Simple ground physics - keep it predictable
 const TREE_ENERGY_ABSORPTION = 0.75;  // Trees absorb 75% of energy
@@ -144,17 +145,18 @@ export class ShotSimulator {
             actualFeet: puttResult.actualDistanceFeet,
             distanceError: puttResult.actualDistanceFeet - distanceFeet,
             directionError: 0,
-            isMiss: false
+            isMiss: false,
+            holed: puttResult.holed || false
         };
         
-        console.log(`Putt: ${distanceFeet} ft intended, rolling...`);
+        console.log(`Putt: ${distanceFeet} ft intended, rolling...${puttResult.holed ? ' (tracking toward hole)' : ''}`);
         
         // Animate the putt
         this.animatePutt(start, puttResult.path, puttResult.duration, shotData, holeData);
     }
 
     /**
-     * Simulate putt path with slope breaking
+     * Simulate putt path with slope breaking and hole capture
      * Returns path points and final position
      * 
      * Physics model for fast tournament greens (stimp 11-13):
@@ -162,10 +164,15 @@ export class ShotSimulator {
      * - Gravity pulls ball downhill, can accelerate on downslopes
      * - Deceleration is gradual and smooth
      * - Break increases as ball slows
+     * - Ball can fall into hole if slow enough and close enough
      */
     simulatePutt(start, aimAngle, totalUnits, holeData) {
         const path = [{ x: start.x, y: start.y }];
         const aimRad = (aimAngle * Math.PI) / 180;
+        
+        // Hole position from holeData
+        const holePos = holeData.hole;
+        const holeRadiusWorld = HOLE.RADIUS_WORLD;
         
         // Green speed - stimp meter rating
         // 11-13 = PGA Tour speed (very fast)
@@ -190,26 +197,93 @@ export class ShotSimulator {
         let x = start.x;
         let y = start.y;
         
-        // Gravity effect on slopes (how much slope affects ball)
-        // Needs to be strong enough that steep slopes can accelerate a slow ball
-        const slopeEffect = 0.025 * stimpFactor;
+        // Split slope effect for realistic physics:
+        // - Parallel effect (uphill/downhill): affects ball speed, needs to be strong
+        //   for two-tier greens where slow ball accelerates down steep slope
+        // - Perpendicular effect (cross-slope): affects break, needs to be weaker
+        //   to avoid excessive lateral movement
+        // Both scale with stimp factor (faster greens = more effect)
+        const parallelSlopeEffect = 0.016 * stimpFactor;
+        const perpSlopeEffect = 0.005 * stimpFactor;
         
         let t = 0;
         let stepCount = 0;
+        let holed = false;
         
         while (t < maxTime) {
             const speed = Math.sqrt(velX * velX + velY * velY);
             
-            // Stop when ball is essentially stopped
+            // Check if ball is over the hole BEFORE checking if stopped
+            // This ensures a ball that stops on the hole still drops in
+            const distToHole = Math.sqrt((x - holePos.x) ** 2 + (y - holePos.y) ** 2);
+            
+            // Ball capture physics:
+            // - Ball must be within hole radius (or close to edge)
+            // - Ball must be moving slow enough to drop in
+            // - Fast balls can lip out or roll over
+            if (distToHole < holeRadiusWorld * HOLE.EDGE_TOLERANCE) {
+                // Ball is near/over the hole
+                if (distToHole < holeRadiusWorld) {
+                    // Ball is directly over the hole
+                    if (speed < HOLE.MAX_CAPTURE_SPEED) {
+                        // Slow enough - ball drops in!
+                        holed = true;
+                        x = holePos.x;
+                        y = holePos.y;
+                        path.push({ x, y, speed: 0, holed: true });
+                        console.log('Ball dropped in the hole!');
+                        break;
+                    } else if (speed < HOLE.MAX_CAPTURE_SPEED * 2) {
+                        // Medium speed - might lip out
+                        const lipOutRoll = Math.random();
+                        if (lipOutRoll > HOLE.LIP_OUT_CHANCE) {
+                            // Ball catches the lip and drops!
+                            holed = true;
+                            x = holePos.x;
+                            y = holePos.y;
+                            path.push({ x, y, speed: 0, holed: true });
+                            console.log('Ball caught the lip and dropped in!');
+                            break;
+                        } else {
+                            // Lip out - ball deflects away from hole
+                            console.log('Lip out!');
+                            const deflectAngle = Math.atan2(y - holePos.y, x - holePos.x);
+                            const deflectSpeed = speed * 0.6;
+                            velX = Math.cos(deflectAngle) * deflectSpeed;
+                            velY = Math.sin(deflectAngle) * deflectSpeed;
+                        }
+                    }
+                    // else: ball is too fast, rolls right over
+                }
+            }
+            
+            // Stop when ball is essentially stopped (after hole check)
             if (speed < 0.0003) break;
             
             // Get slope at current position
             const slope = getSlopeAt(holeData, x, y);
             
-            // Slope acceleration - ball accelerates downhill, decelerates uphill
-            // slope points UPHILL, so negate for downhill acceleration
-            const slopeAccelX = -slope.x * slopeEffect;
-            const slopeAccelY = -slope.y * slopeEffect;
+            // Calculate direction of travel and perpendicular
+            const dirX = velX / speed;
+            const dirY = velY / speed;
+            const perpX = -dirY;
+            const perpY = dirX;
+            
+            // Slope vector (negative because slope points uphill, gravity pulls downhill)
+            const slopeVecX = -slope.x;
+            const slopeVecY = -slope.y;
+            
+            // Project slope onto parallel (speed) and perpendicular (break) components
+            const parallelComponent = slopeVecX * dirX + slopeVecY * dirY;
+            const perpComponent = slopeVecX * perpX + slopeVecY * perpY;
+            
+            // Apply different effects to each component
+            const parallelAccel = parallelComponent * parallelSlopeEffect;
+            const perpAccel = perpComponent * perpSlopeEffect;
+            
+            // Convert back to X/Y accelerations
+            const slopeAccelX = parallelAccel * dirX + perpAccel * perpX;
+            const slopeAccelY = parallelAccel * dirY + perpAccel * perpY;
             
             // Rolling friction - decreases at low speeds
             // This allows gravity to accelerate a slow ball on steep slopes
@@ -219,13 +293,9 @@ export class ShotSimulator {
             const fricAccelX = -(velX / speed) * effectiveFriction;
             const fricAccelY = -(velY / speed) * effectiveFriction;
             
-            // Total acceleration
-            const accelX = slopeAccelX + fricAccelX;
-            const accelY = slopeAccelY + fricAccelY;
-            
             // Update velocity
-            velX += accelX * dt;
-            velY += accelY * dt;
+            velX += (slopeAccelX + fricAccelX) * dt;
+            velY += (slopeAccelY + fricAccelY) * dt;
             
             // Update position
             x += velX * dt;
@@ -240,8 +310,26 @@ export class ShotSimulator {
             t += dt;
         }
         
-        // Add final position
-        path.push({ x, y, speed: 0 });
+        // Final check: if ball stopped on or very near the hole, it drops in
+        // This catches cases where the ball came to rest exactly on the hole
+        if (!holed) {
+            const finalDistToHole = Math.sqrt((x - holePos.x) ** 2 + (y - holePos.y) ** 2);
+            if (finalDistToHole < holeRadiusWorld) {
+                holed = true;
+                x = holePos.x;
+                y = holePos.y;
+                // Update the last path point to show ball in hole
+                if (path.length > 0) {
+                    path[path.length - 1] = { x, y, speed: 0, holed: true };
+                }
+                console.log('Ball stopped in the hole!');
+            }
+        }
+        
+        // Add final position (only if not already holed)
+        if (!holed) {
+            path.push({ x, y, speed: 0 });
+        }
         
         // Calculate actual distance rolled
         let totalDistance = 0;
@@ -258,7 +346,8 @@ export class ShotSimulator {
             path,
             finalPosition: path[path.length - 1],
             actualDistanceFeet: (totalDistance * 4) * 3, // units to yards to feet
-            duration
+            duration,
+            holed
         };
     }
 
@@ -268,8 +357,11 @@ export class ShotSimulator {
     animatePutt(start, path, duration, shotData, holeData) {
         this.isAnimating = true;
         
+        console.log(`animatePutt: path has ${path.length} points, duration ${duration}ms`);
+        
         // Safety check - ensure path has at least 2 points
         if (!path || path.length < 2) {
+            console.log('animatePutt: path too short, skipping animation');
             const finalPos = path && path.length > 0 ? path[0] : start;
             this.ball.setPosition(finalPos.x, finalPos.y, 0);
             this.isAnimating = false;
@@ -277,9 +369,24 @@ export class ShotSimulator {
             return;
         }
         
-        const startTime = performance.now();
+        const self = this;
+        let startTime = null;
+        
+        // Check if the putt ends in the hole
+        const finalPoint = path[path.length - 1];
+        const isHoled = finalPoint.holed || shotData.holed;
+        const holePos = holeData.hole;
+        const holeRadius = HOLE.RADIUS_WORLD;
+        let hasDropped = false;
+        let dropStartTime = null;
+        const dropDuration = 150; // ms for drop animation
         
         const animate = (currentTime) => {
+            // Initialize start time on first frame
+            if (startTime === null) {
+                startTime = currentTime;
+            }
+            
             const elapsed = currentTime - startTime;
             const t = Math.min(elapsed / duration, 1);
             
@@ -296,24 +403,47 @@ export class ShotSimulator {
             
             if (!point || !nextPoint) {
                 const finalPos = path[path.length - 1];
-                this.ball.setPosition(finalPos.x, finalPos.y, 0);
-                this.isAnimating = false;
-                if (this.onComplete) this.onComplete(finalPos, shotData);
+                const height = isHoled ? -0.15 : 0;
+                self.ball.setPosition(finalPos.x, finalPos.y, height);
+                self.isAnimating = false;
+                if (self.onComplete) self.onComplete(finalPos, shotData);
                 return;
             }
             
             const x = point.x + (nextPoint.x - point.x) * localT;
             const y = point.y + (nextPoint.y - point.y) * localT;
             
-            this.ball.setPosition(x, y, 0);
+            // Check if ball has entered the hole
+            let height = 0;
+            if (isHoled) {
+                const distToHole = Math.sqrt((x - holePos.x) ** 2 + (y - holePos.y) ** 2);
+                
+                if (!hasDropped && distToHole < holeRadius) {
+                    // Ball just entered the hole - start drop
+                    hasDropped = true;
+                    dropStartTime = currentTime;
+                }
+                
+                if (hasDropped) {
+                    // Animate the drop
+                    const dropElapsed = currentTime - dropStartTime;
+                    const dropProgress = Math.min(dropElapsed / dropDuration, 1);
+                    // Ease out for smooth drop
+                    const easedDrop = 1 - Math.pow(1 - dropProgress, 2);
+                    height = -0.15 * easedDrop;
+                }
+            }
             
-            if (t < 1) {
+            self.ball.setPosition(x, y, height);
+            
+            if (t < 1 || (hasDropped && (currentTime - dropStartTime) < dropDuration)) {
                 requestAnimationFrame(animate);
             } else {
                 const finalPos = path[path.length - 1];
-                this.ball.setPosition(finalPos.x, finalPos.y, 0);
-                this.isAnimating = false;
-                if (this.onComplete) this.onComplete(finalPos, shotData);
+                const finalHeight = isHoled ? -0.15 : 0;
+                self.ball.setPosition(finalPos.x, finalPos.y, finalHeight);
+                self.isAnimating = false;
+                if (self.onComplete) self.onComplete(finalPos, shotData);
             }
         };
         

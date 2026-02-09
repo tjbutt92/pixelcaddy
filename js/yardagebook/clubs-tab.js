@@ -9,9 +9,10 @@
  * Validates: Requirements 5.2
  */
 
-import { shotClubs } from '../clubs.js';
+import { shotClubs, clubs } from '../clubs.js';
 import { golfer } from '../golfer.js';
 import { clamp } from '../utils.js';
+import { putterStats } from '../puttSimulation.js';
 
 /**
  * Calculate statistics from shot history for a club.
@@ -170,12 +171,68 @@ function renderClubExpandable(club) {
 }
 
 /**
+ * Render the putter stats section.
+ * Shows bias and spread for putt simulation dispersion.
+ * @returns {string} HTML string for putter stats
+ */
+function renderPutterStats() {
+    const biasDirection = putterStats.bias > 0 ? 'Right' : putterStats.bias < 0 ? 'Left' : 'Center';
+    const biasAmount = Math.abs(putterStats.bias * 100).toFixed(0);
+    const pressureEffect = golfer.mental.pressure;
+    const effectiveSpread = putterStats.spread * (1 + pressureEffect / 100);
+    
+    return `
+        <div class="club-expandable putter-section">
+            <div class="club-header">
+                <span class="club-header-name">Putter</span>
+                <span class="club-header-yards">—</span>
+                <span class="club-header-stat">${biasDirection}</span>
+                <span class="club-header-stat">±${effectiveSpread.toFixed(1)}°</span>
+            </div>
+            <div class="club-details">
+                <div class="putter-stats-display">
+                    <div class="putter-bias-visual">
+                        <div class="bias-track">
+                            <div class="bias-center-mark"></div>
+                            <div class="bias-indicator" style="left: ${50 + putterStats.bias * 30}%"></div>
+                        </div>
+                        <div class="bias-labels">
+                            <span>Left</span>
+                            <span>Right</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="club-stats-row">
+                    <div class="club-stat">
+                        <span class="club-stat-label">Bias</span>
+                        <span class="club-stat-value">${biasDirection} ${biasAmount}%</span>
+                    </div>
+                    <div class="club-stat">
+                        <span class="club-stat-label">Base Spread</span>
+                        <span class="club-stat-value">±${putterStats.spread.toFixed(1)}°</span>
+                    </div>
+                    <div class="club-stat">
+                        <span class="club-stat-label">Pressure</span>
+                        <span class="club-stat-value">${pressureEffect}%</span>
+                    </div>
+                    <div class="club-stat">
+                        <span class="club-stat-label">Effective</span>
+                        <span class="club-stat-value">±${effectiveSpread.toFixed(1)}°</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
  * Render the expandable clubs list.
  * @returns {string} HTML string for the clubs list
  */
 function renderClubsListExpandable() {
     return `<div class="clubs-list-expandable">
         ${shotClubs.map(club => renderClubExpandable(club)).join('')}
+        ${renderPutterStats()}
     </div>`;
 }
 

@@ -4,7 +4,7 @@
 
 export const THEME_COLORS = {
     // Terrain colors (for canvas/SVG rendering)
-    rough: '#90c090',
+    rough: '#022906',
     fairway: '#b8e8b8',
     water: '#a0c8e8',
     bunker: '#e8dca0',

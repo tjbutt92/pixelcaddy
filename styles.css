@@ -22,7 +22,7 @@
     
     /* Colors - Golf terrain */
     --color-fairway: #3d6b35;
-    --color-rough: #2d5a27;
+    --color-rough: #022906;
     --color-tee: #4a7c43;
     --color-green: #5cb85c;
     --color-bunker: #e8d4a8;
@@ -1385,6 +1385,62 @@ body {
     background: var(--color-accent-green-active, #449d44);
 }
 
+/* ============================================
+   HOLED CELEBRATION OVERLAY
+   ============================================ */
+.holed-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.5);
+    animation: holed-fade-in 0.3s ease-out;
+}
+
+.holed-overlay.fade-out {
+    animation: holed-fade-out 0.5s ease-out forwards;
+}
+
+.holed-message {
+    text-align: center;
+    animation: holed-bounce 0.5s ease-out;
+}
+
+.holed-text {
+    font-size: 72px;
+    font-weight: 700;
+    color: var(--color-accent-green);
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    letter-spacing: 4px;
+}
+
+.holed-strokes {
+    font-size: 24px;
+    color: var(--color-text-primary);
+    margin-top: var(--space-md);
+}
+
+@keyframes holed-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes holed-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+@keyframes holed-bounce {
+    0% { transform: scale(0.5); opacity: 0; }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
 
 /* ============================================
    LIE WINDOW - In Left Controls Stack
@@ -2229,4 +2285,105 @@ body {
     pointer-events: none;
     opacity: 1;
     z-index: 100;
+}
+
+
+/* ============================================
+   PUTTER STATS IN CLUBS TAB
+   ============================================ */
+.putter-section {
+    border-top: 1px solid var(--color-bg-tertiary);
+    margin-top: var(--space-sm);
+}
+
+.putter-stats-display {
+    padding: var(--space-md) 0;
+}
+
+.putter-bias-visual {
+    padding: var(--space-sm) var(--space-md);
+}
+
+.bias-track {
+    position: relative;
+    height: 8px;
+    background-color: var(--color-bg-dark);
+    border-radius: 0;
+    margin-bottom: var(--space-xs);
+}
+
+.bias-center-mark {
+    position: absolute;
+    left: 50%;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background-color: var(--color-text-dim);
+    transform: translateX(-50%);
+}
+
+.bias-indicator {
+    position: absolute;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    background-color: var(--color-accent-orange);
+    border-radius: 0;
+    transform: translate(-50%, -50%);
+    transition: left var(--transition-normal);
+}
+
+.bias-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--font-size-xs);
+    color: var(--color-text-dim);
+}
+
+/* ============================================
+   PUTT SIMULATION BUTTON
+   ============================================ */
+.simulate-putt-btn {
+    position: absolute;
+    bottom: 156px;
+    right: var(--space-md);
+    min-width: 60px;
+    width: 60px;
+    padding: var(--space-md) var(--space-sm);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+    border: 2px solid var(--color-text-muted);
+    border-radius: 0;
+    font-family: var(--font-family);
+    font-size: var(--font-size-lg);
+    font-weight: normal;
+    cursor: pointer;
+    z-index: 50;
+    transition: background-color var(--transition-fast);
+    text-align: center;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.simulate-putt-btn:hover {
+    background: var(--color-bg-tertiary);
+}
+
+.simulate-putt-btn:active {
+    background: var(--color-bg-hover);
+}
+
+.simulate-putt-btn.disabled {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+}
+
+.simulate-putt-btn.hidden {
+    display: none;
+}
+
+/* Simulating state */
+.simulate-putt-btn.simulating {
+    opacity: 0.5;
+    pointer-events: none;
 }

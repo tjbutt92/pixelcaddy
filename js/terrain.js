@@ -30,7 +30,7 @@ export const terrainProperties = {
     },
     [TerrainType.ROUGH]: {
         name: 'Rough',
-        color: '#2d5a27',
+        color: '#022906',
         friction: 0.4,
         lieQuality: 0.7,      // harder to hit clean
         canHitFrom: true,

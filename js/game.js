@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { clubs } from './clubs.js';
 import { Ball } from './ball.js';
 import { AimLine } from './aim.js';
-import { setupUI, updateYardageIndicator } from './ui.js';
+import { setupUI, updateYardageIndicator, createSimulatePuttButton, updateSimulatePuttButtonVisibility, disableSimulatePuttButton, setSimulatePuttButtonSimulating, resetSimulatePuttButton } from './ui.js';
 import { ShotSimulator } from './shot.js';
 import { golfer, initializeGolferHistory, recordShot } from './golfer.js';
 import { course as defaultCourse } from '../courses/test_course.js';
@@ -16,6 +16,7 @@ import { WORLD_SCALE } from './utils.js';
 import { CAMERA, TIMING } from './constants.js';
 import { initializeWind, getWindForShot } from './wind.js';
 import { setLastShotData } from './yardagebook/golfer-tab.js';
+import { runPuttSimulations } from './puttSimulation.js';
 
 // Current course (default course loaded directly)
 let course = defaultCourse;
@@ -62,13 +63,18 @@ let shotSimulator = null;
 let world = null;
 let scene, camera, renderer;
 let ballMesh = null;
-let golferGroup = null;
 let aimLineMesh = null;
 
 // Shot tracer
 let shotTracerLine = null;
 let shotTracerPoints = [];
 let isTracingShot = false;
+
+// Putt simulation paths
+let puttSimulationLines = [];
+let puttSimulationAnimations = [];
+let isPuttSimulationActive = false;
+let puttSimulationFadeStart = null;
 
 // Camera fly-along state
 let isCameraFlying = false;
@@ -138,10 +144,6 @@ function initGame() {
     // Create ball mesh
     createBallMesh();
     
-    // Create golfer figure (hidden for now)
-    createGolferMesh();
-    if (golferGroup) golferGroup.visible = false;
-    
     // Create aim line
     createAimLineMesh();
     
@@ -190,6 +192,9 @@ function initGame() {
     setupUI(gameState, aimLine, ball, hitShot, world, [aimLineMesh, ballMesh, shotTracerLine]);
     if (gameState.updateWindDisplay) gameState.updateWindDisplay(centrelineAngle);
     
+    // Setup putt simulation button
+    createSimulatePuttButton(container, gameState, runPuttSimulation);
+    
     // Setup camera controls
     setupCameraControls();
     
@@ -215,129 +220,20 @@ function createBallMesh() {
     scene.add(ballMesh);
 }
 
-function createGolferMesh() {
-    // 6ft golfer = 2 yards tall
-    // Low-poly stylized figure for that retro look
-    golferGroup = new THREE.Group();
-    
-    const skinColor = 0xd4a574;
-    const shirtColor = 0x2266aa;
-    const pantsColor = 0x333333;
-    const hatColor = 0xffffff;
-    
-    const skinMat = new THREE.MeshLambertMaterial({ color: skinColor, flatShading: true });
-    const shirtMat = new THREE.MeshLambertMaterial({ color: shirtColor, flatShading: true });
-    const pantsMat = new THREE.MeshLambertMaterial({ color: pantsColor, flatShading: true });
-    const hatMat = new THREE.MeshLambertMaterial({ color: hatColor, flatShading: true });
-    
-    // Legs (two cylinders) - 0.8 yards tall
-    const legGeom = new THREE.CylinderGeometry(0.08, 0.1, 0.8, 6);
-    const leftLeg = new THREE.Mesh(legGeom, pantsMat);
-    leftLeg.position.set(-0.12, 0.4, 0);
-    golferGroup.add(leftLeg);
-    
-    const rightLeg = new THREE.Mesh(legGeom, pantsMat);
-    rightLeg.position.set(0.12, 0.4, 0);
-    golferGroup.add(rightLeg);
-    
-    // Torso (box) - 0.7 yards tall
-    const torsoGeom = new THREE.BoxGeometry(0.4, 0.7, 0.25, 1, 1, 1);
-    const torso = new THREE.Mesh(torsoGeom, shirtMat);
-    torso.position.set(0, 1.15, 0);
-    golferGroup.add(torso);
-    
-    // Arms (two cylinders) - slightly angled for address position
-    const armGeom = new THREE.CylinderGeometry(0.06, 0.07, 0.55, 5);
-    
-    const leftArm = new THREE.Mesh(armGeom, shirtMat);
-    leftArm.position.set(-0.28, 1.0, 0.1);
-    leftArm.rotation.x = 0.4;
-    leftArm.rotation.z = 0.2;
-    golferGroup.add(leftArm);
-    
-    const rightArm = new THREE.Mesh(armGeom, shirtMat);
-    rightArm.position.set(0.28, 1.0, 0.1);
-    rightArm.rotation.x = 0.4;
-    rightArm.rotation.z = -0.2;
-    golferGroup.add(rightArm);
-    
-    // Hands (small spheres at end of arms)
-    const handGeom = new THREE.IcosahedronGeometry(0.06, 0);
-    const leftHand = new THREE.Mesh(handGeom, skinMat);
-    leftHand.position.set(-0.22, 0.72, 0.32);
-    golferGroup.add(leftHand);
-    
-    const rightHand = new THREE.Mesh(handGeom, skinMat);
-    rightHand.position.set(0.22, 0.72, 0.32);
-    golferGroup.add(rightHand);
-    
-    // Head (icosahedron for low-poly look)
-    const headGeom = new THREE.IcosahedronGeometry(0.18, 1);
-    const head = new THREE.Mesh(headGeom, skinMat);
-    head.position.set(0, 1.68, 0);
-    golferGroup.add(head);
-    
-    // Cap/visor
-    const capGeom = new THREE.CylinderGeometry(0.2, 0.18, 0.1, 6);
-    const cap = new THREE.Mesh(capGeom, hatMat);
-    cap.position.set(0, 1.82, 0);
-    golferGroup.add(cap);
-    
-    // Cap brim
-    const brimGeom = new THREE.BoxGeometry(0.12, 0.02, 0.18);
-    const brim = new THREE.Mesh(brimGeom, hatMat);
-    brim.position.set(0, 1.78, 0.15);
-    golferGroup.add(brim);
-    
-    // Club shaft (thin cylinder)
-    const shaftGeom = new THREE.CylinderGeometry(0.015, 0.015, 1.1, 4);
-    const shaftMat = new THREE.MeshLambertMaterial({ color: 0x888888, flatShading: true });
-    const shaft = new THREE.Mesh(shaftGeom, shaftMat);
-    shaft.position.set(0, 0.35, 0.45);
-    shaft.rotation.x = -0.7;
-    golferGroup.add(shaft);
-    
-    // Club head (small box)
-    const clubHeadGeom = new THREE.BoxGeometry(0.08, 0.04, 0.12);
-    const clubHeadMat = new THREE.MeshLambertMaterial({ color: 0x444444, flatShading: true });
-    const clubHead = new THREE.Mesh(clubHeadGeom, clubHeadMat);
-    clubHead.position.set(0, -0.05, 0.85);
-    golferGroup.add(clubHead);
-    
-    // Enable shadows for all parts
-    golferGroup.traverse((child) => {
-        if (child.isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-        }
-    });
-    
-    scene.add(golferGroup);
-}
-
-function updateGolferPosition() {
-    if (!golferGroup || !ball || !world) return;
-    
-    const pos = ball.getPosition();
-    const pos3D = world.worldTo3D(pos.x, pos.y);
-    
-    // Position golfer at ball location
-    golferGroup.position.set(pos3D.x, pos3D.y, pos3D.z);
-    
-    // Rotate golfer to face aim direction
-    const aimAngle = aimLine.getAngle();
-    const aimRad = (aimAngle * Math.PI) / 180;
-    golferGroup.rotation.y = -aimRad;
-}
 
 function updateBallMeshPosition() {
-    if (!ballMesh || !ball) return;
+    if (!ballMesh || !ball || !world) return;
     const pos = ball.getPosition();
-    const height = ball.getHeight() / 2.5; // Convert from pixels to yards
+    const rawHeight = ball.getHeight();
     const pos3D = world.worldTo3D(pos.x, pos.y);
     // Ball radius is 0.047 yards, add small offset (0.02) to ensure ball sits visibly on terrain
     const ballRadius = 0.047;
     const terrainOffset = 0.02; // Small offset to prevent z-fighting with terrain
+    
+    // If height is negative, ball is dropping into hole - use directly as yards
+    // If positive, it's from flight animation (pixels) - convert to yards
+    const height = rawHeight < 0 ? rawHeight : rawHeight / 2.5;
+    
     ballMesh.position.set(pos3D.x, pos3D.y + ballRadius + terrainOffset + height, pos3D.z);
     
     // Add point to shot tracer if tracing
@@ -408,6 +304,143 @@ function clearShotTracer() {
         shotTracerLine.material.dispose();
         shotTracerLine = null;
     }
+}
+
+// Putt simulation functions
+function runPuttSimulation() {
+    if (isPuttSimulationActive || shotSimulator.isAnimating) return;
+    
+    const ballPos = ball.getPosition();
+    const aimAngle = aimLine.getAngle();
+    const distanceFeet = gameState.putterDistance;
+    
+    // Set button to simulating state
+    setSimulatePuttButtonSimulating(true);
+    
+    // Run simulations
+    const simulations = runPuttSimulations(ballPos, aimAngle, distanceFeet, gameState.currentHole);
+    
+    // Clear any existing simulation paths
+    clearPuttSimulationPaths();
+    
+    // Create 3D paths for each simulation
+    isPuttSimulationActive = true;
+    puttSimulationAnimations = [];
+    
+    // Color scheme: all paths same color
+    const pathColor = 0x3498db;  // Blue
+    const pathOpacity = 0.8;
+    
+    simulations.forEach((sim, index) => {
+        // Convert path to 3D points
+        const points3D = sim.path.map(p => {
+            const pos3D = world.worldTo3D(p.x, p.y);
+            return new THREE.Vector3(pos3D.x, pos3D.y + 0.05, pos3D.z); // Slight offset above terrain
+        });
+        
+        // Create line geometry (initially empty, will be animated)
+        const geometry = new THREE.BufferGeometry();
+        const material = new THREE.LineBasicMaterial({
+            color: pathColor,
+            transparent: true,
+            opacity: pathOpacity,
+            linewidth: 2
+        });
+        
+        const line = new THREE.Line(geometry, material);
+        scene.add(line);
+        puttSimulationLines.push(line);
+        
+        // Store animation data
+        puttSimulationAnimations.push({
+            points3D,
+            duration: sim.duration,
+            startTime: null,
+            currentIndex: 0,
+            complete: false,
+            line,
+            material,
+            baseOpacity: pathOpacity
+        });
+    });
+    
+    // Disable button after use
+    disableSimulatePuttButton();
+    setSimulatePuttButtonSimulating(false);
+}
+
+function updatePuttSimulationAnimation(currentTime) {
+    if (!isPuttSimulationActive || puttSimulationAnimations.length === 0) return;
+    
+    let allComplete = true;
+    
+    puttSimulationAnimations.forEach(anim => {
+        if (anim.complete) return;
+        
+        // Initialize start time on first frame
+        if (anim.startTime === null) {
+            anim.startTime = currentTime;
+        }
+        
+        const elapsed = currentTime - anim.startTime;
+        const t = Math.min(elapsed / anim.duration, 1);
+        
+        // Calculate how many points to show based on time
+        const targetIndex = Math.floor(t * (anim.points3D.length - 1)) + 1;
+        
+        if (targetIndex > anim.currentIndex) {
+            anim.currentIndex = targetIndex;
+            
+            // Update line geometry with points up to current index
+            const visiblePoints = anim.points3D.slice(0, anim.currentIndex + 1);
+            anim.line.geometry.dispose();
+            anim.line.geometry = new THREE.BufferGeometry().setFromPoints(visiblePoints);
+        }
+        
+        if (t >= 1) {
+            anim.complete = true;
+        } else {
+            allComplete = false;
+        }
+    });
+    
+    // If all animations complete, start fade timer
+    if (allComplete && puttSimulationFadeStart === null) {
+        puttSimulationFadeStart = currentTime;
+    }
+    
+    // Handle fade out (1 second hold, then 5 second fade)
+    if (puttSimulationFadeStart !== null) {
+        const fadeElapsed = currentTime - puttSimulationFadeStart;
+        const holdTime = 1000; // 1 second hold
+        const fadeTime = 5000; // 5 second fade
+        
+        if (fadeElapsed > holdTime) {
+            const fadeT = Math.min((fadeElapsed - holdTime) / fadeTime, 1);
+            
+            // Fade out all lines
+            puttSimulationAnimations.forEach(anim => {
+                anim.material.opacity = anim.baseOpacity * (1 - fadeT);
+            });
+            
+            // Clean up when fade complete
+            if (fadeT >= 1) {
+                clearPuttSimulationPaths();
+            }
+        }
+    }
+}
+
+function clearPuttSimulationPaths() {
+    puttSimulationLines.forEach(line => {
+        scene.remove(line);
+        line.geometry.dispose();
+        line.material.dispose();
+    });
+    puttSimulationLines = [];
+    puttSimulationAnimations = [];
+    isPuttSimulationActive = false;
+    puttSimulationFadeStart = null;
 }
 
 // Camera fly-along functions
@@ -559,25 +592,35 @@ function createAimLineMesh() {
 function updateAimLineMesh(ballX, ballY, aimAngle) {
     if (!aimLineMesh || !world) return;
     
-    const numPoints = 250; // Higher density for smoother terrain following
-    const lineStart = 1; // Start 1 yard away from ball
-    const lineLength = 500;
     const aimRad = (aimAngle * Math.PI) / 180;
     const points = [];
     const bounds = course.bounds;
     
-    // Offset above terrain to ensure line stays visible on slopes
-    const terrainOffset = 0.25;
+    // Line parameters - shorter on green for putting
+    const onGreen = gameState.currentLie?.name === 'Green';
+    const lineLength = onGreen ? 50 : 500;
+    const numPoints = onGreen ? 100 : 250;
     
-    for (let i = 0; i < numPoints; i++) {
+    // The aim line should sit at the same height as the ball
+    // Ball sits at: terrain elevation + ballRadius + small offset
+    const ballRadius = 0.047;
+    const ballTerrainOffset = 0.02;
+    const lineHeight = ballRadius + ballTerrainOffset; // Match ball height above terrain
+    
+    // Start exactly at the ball position
+    const ballPos3D = world.worldTo3D(ballX, ballY);
+    points.push(new THREE.Vector3(ballPos3D.x, ballPos3D.y + lineHeight, ballPos3D.z));
+    
+    // Generate points along the aim direction, following terrain
+    for (let i = 1; i < numPoints; i++) {
         const t = i / (numPoints - 1);
-        const dist = lineStart + t * lineLength;
+        const dist = t * lineLength;
         const worldX = ballX + Math.sin(aimRad) * dist;
         const worldY = ballY - Math.cos(aimRad) * dist;
         
         if (worldX >= bounds.minX && worldX <= bounds.maxX && worldY >= bounds.minY && worldY <= bounds.maxY) {
             const pos3D = world.worldTo3D(worldX, worldY);
-            points.push(new THREE.Vector3(pos3D.x, pos3D.y + terrainOffset, pos3D.z));
+            points.push(new THREE.Vector3(pos3D.x, pos3D.y + lineHeight, pos3D.z));
         }
     }
     
@@ -822,9 +865,6 @@ function hitShot() {
         putterDistance: gameState.putterDistance
     };
     
-    // Hide golfer during shot
-    if (golferGroup) golferGroup.visible = false;
-    
     // Start shot tracer (not for putts - they stay on ground)
     if (!isPutting) {
         startShotTracer();
@@ -845,8 +885,19 @@ function onShotComplete(finalPosition, shotData) {
     // Stop shot tracer
     stopShotTracer();
     
-    // Show golfer again
-    if (golferGroup) golferGroup.visible = true;
+    // Clear any putt simulation paths and reset button for next shot
+    clearPuttSimulationPaths();
+    resetSimulatePuttButton();
+    
+    // Check if ball went in the hole!
+    if (shotData && shotData.holed) {
+        console.log('🎉 HOLED! Ball is in the cup!');
+        showHoledMessage(() => {
+            // After celebration, could advance to next hole or show score
+            console.log(`Hole completed in ${gameState.strokes} strokes`);
+        });
+        return;
+    }
     
     const newLie = updateBallLie(finalPosition.x, finalPosition.y);
     const hole = gameState.currentHole.hole;
@@ -896,6 +947,34 @@ function onShotComplete(finalPosition, shotData) {
             });
         }
     });
+}
+
+/**
+ * Show celebration message when ball is holed
+ */
+function showHoledMessage(onComplete) {
+    const existing = document.querySelector('.holed-overlay');
+    if (existing) existing.remove();
+    
+    const overlay = document.createElement('div');
+    overlay.className = 'holed-overlay';
+    overlay.innerHTML = `
+        <div class="holed-message">
+            <div class="holed-text">HOLED!</div>
+            <div class="holed-strokes">${gameState.strokes} ${gameState.strokes === 1 ? 'stroke' : 'strokes'}</div>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+    
+    // Auto-dismiss after 2 seconds
+    setTimeout(() => {
+        overlay.classList.add('fade-out');
+        setTimeout(() => {
+            overlay.remove();
+            if (onComplete) onComplete();
+        }, 500);
+    }, 2000);
 }
 
 function showContinueButton(onContinue) {
@@ -950,8 +1029,12 @@ function coreUpdate(deltaTime, currentTime) {
         updateCameraFlyAlong(currentTime);
     }
     
+    // Update putt simulation animation if active
+    if (isPuttSimulationActive) {
+        updatePuttSimulationAnimation(currentTime);
+    }
+    
     updateBallMeshPosition();
-    updateGolferPosition();
 }
 
 // Core render function (registered as render callback)

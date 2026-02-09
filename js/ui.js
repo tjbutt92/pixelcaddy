@@ -74,6 +74,8 @@ function createClubSelector(gameState, updateButtons) {
             item.classList.add('selected');
             // Update button text
             updateButtons();
+            // Update simulate putt button visibility
+            updateSimulatePuttButtonVisibility(gameState);
             // Collapse the selector after selection
             collapseClubSelector();
         });
@@ -798,5 +800,91 @@ export function setupUI(gameState, aimLine, ball, onHitShot, world = null, objec
                 overlay.remove();
             });
         });
+    }
+}
+
+
+// Simulate putt button state
+let simulatePuttBtn = null;
+let simulatePuttCallback = null;
+let simulatePuttDisabled = false;
+
+/**
+ * Creates and manages the floating simulate putt button
+ * Only visible when putter is selected
+ */
+export function createSimulatePuttButton(container, gameState, onSimulate) {
+    simulatePuttCallback = onSimulate;
+    
+    // Create button if it doesn't exist
+    if (!simulatePuttBtn) {
+        simulatePuttBtn = document.createElement('button');
+        simulatePuttBtn.className = 'simulate-putt-btn hidden';
+        simulatePuttBtn.textContent = 'Read';
+        simulatePuttBtn.addEventListener('click', () => {
+            if (!simulatePuttDisabled && simulatePuttCallback) {
+                simulatePuttCallback();
+            }
+        });
+        container.appendChild(simulatePuttBtn);
+    }
+    
+    // Update visibility based on current club
+    updateSimulatePuttButtonVisibility(gameState);
+}
+
+/**
+ * Updates the simulate button visibility based on club selection
+ */
+export function updateSimulatePuttButtonVisibility(gameState) {
+    if (!simulatePuttBtn) return;
+    
+    if (isPutter(gameState.club)) {
+        simulatePuttBtn.classList.remove('hidden');
+        if (simulatePuttDisabled) {
+            simulatePuttBtn.classList.add('disabled');
+        } else {
+            simulatePuttBtn.classList.remove('disabled');
+        }
+    } else {
+        simulatePuttBtn.classList.add('hidden');
+    }
+}
+
+/**
+ * Disables the simulate button (after use)
+ */
+export function disableSimulatePuttButton() {
+    simulatePuttDisabled = true;
+    if (simulatePuttBtn) {
+        simulatePuttBtn.classList.add('disabled');
+        simulatePuttBtn.textContent = 'Used';
+    }
+}
+
+/**
+ * Sets the button to simulating state
+ */
+export function setSimulatePuttButtonSimulating(isSimulating) {
+    if (simulatePuttBtn) {
+        if (isSimulating) {
+            simulatePuttBtn.classList.add('simulating');
+            simulatePuttBtn.textContent = '...';
+        } else {
+            simulatePuttBtn.classList.remove('simulating');
+            simulatePuttBtn.textContent = simulatePuttDisabled ? 'Used' : 'Read';
+        }
+    }
+}
+
+/**
+ * Re-enables the simulate button (for next shot)
+ */
+export function resetSimulatePuttButton() {
+    simulatePuttDisabled = false;
+    if (simulatePuttBtn) {
+        simulatePuttBtn.classList.remove('disabled');
+        simulatePuttBtn.classList.remove('simulating');
+        simulatePuttBtn.textContent = 'Read';
     }
 }

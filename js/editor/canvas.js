@@ -47,7 +47,7 @@ export class EditorCanvas {
         this.terrainColors = {
             teeBox: '#4a7c43',
             fairway: '#3d6b35',
-            rough: '#2d5a27',
+            rough: '#022906',
             green: '#5cb85c',
             bunker: '#e8d4a8',
             water: '#3498db',

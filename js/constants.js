@@ -26,7 +26,7 @@ export const CONVERSION = {
 export const CAMERA = {
     HEIGHT: 1.7,                                // yards above ball (caddy eye level)
     BEHIND_DISTANCE: 8,                         // yards behind ball
-    SIDE_OFFSET: 2.5,                           // yards to the side (caddy stands beside golfer)
+    SIDE_OFFSET: 0,                             // centered behind ball (directly behind aim line)
     FOV: 48,                                    // field of view in degrees (tighter for natural perspective)
     NEAR: 0.1,                                  // near clipping plane
     FAR: 12000,                                 // far clipping plane
@@ -50,12 +50,24 @@ export const TIMING = {
 // Terrain colors for 3D rendering (hex values)
 export const TERRAIN_COLORS = {
     FAIRWAY: 0x4a8c40,      // Brighter, more manicured green
-    ROUGH: 0x2d5a27,        // Darker, wilder green
+    ROUGH: 0x022906,        // Darker, wilder green
     GREEN: 0x6dd66d,        // Vibrant putting green
     BUNKER: 0xf5e6c8,       // Lighter, whiter sand
     WATER: 0x3498db,
     TEE: 0x5a9c50,          // Slightly different from fairway
     OUT_OF_BOUNDS: 0x1a1a1a
+};
+
+// Hole/cup configuration
+export const HOLE = {
+    DIAMETER_INCHES: 4.25,                      // regulation hole diameter
+    RADIUS_YARDS: 0.059,                        // 4.25" / 2 / 36" = 0.059 yards
+    RADIUS_WORLD: 0.059 / 4,                    // in world units (0.0148)
+    DEPTH_INCHES: 4,                            // minimum hole depth
+    // Ball capture physics
+    MAX_CAPTURE_SPEED: 0.04,                    // max speed (world units/frame) to fall in - increased for better capture
+    LIP_OUT_CHANCE: 0.3,                        // chance to lip out at edge speeds
+    EDGE_TOLERANCE: 1.5                         // multiplier for edge detection
 };
 
 // Sky and sun configuration

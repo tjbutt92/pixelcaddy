@@ -1411,12 +1411,13 @@ export class World {
         const z = (worldY - 50) * WORLD_SCALE;
         const y = elevation * 0.33;
 
-        // Larger flag for better visibility at distance
-        const poleHeight = 3.5;
-        const poleRadius = 0.15;
+        // Flagstick dimensions - realistic proportions
+        // Real flagstick: ~7 feet tall, ~0.5 inch diameter pole
+        const poleHeight = 2.3;  // ~7 feet in yards
+        const poleRadius = 0.014; // ~0.5 inch in yards (realistic thin pole)
         
         // Pole (low-poly) - bright white with emissive for visibility
-        const poleGeom = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 4);
+        const poleGeom = new THREE.CylinderGeometry(poleRadius, poleRadius, poleHeight, 6);
         const poleMat = new THREE.MeshLambertMaterial({ 
             color: 0xffffff, 
             emissive: 0x444444,
@@ -1426,9 +1427,9 @@ export class World {
         pole.position.y = poleHeight / 2;
         group.add(pole);
 
-        // Flag cloth - larger and brighter
-        const flagWidth = 1.2;
-        const flagHeight = 0.8;
+        // Flag cloth - sized for visibility
+        const flagWidth = 0.6;  // ~2 feet
+        const flagHeight = 0.4; // ~1.3 feet
         const flagGeom = new THREE.PlaneGeometry(flagWidth, flagHeight, 4, 2);
         
         // Shift geometry so left edge is at origin (pivot at pole)
@@ -1457,21 +1458,39 @@ export class World {
         // Store reference to flag group for distance-based scaling
         this.flagGroup = group;
 
-        // Hole cup - 4.25" diameter (0.12 yards), as a dark ring on surface (low-poly)
-        const cupRadius = 0.06;
-        const cupGeom = new THREE.RingGeometry(cupRadius * 0.7, cupRadius, 6);
-        const cupMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
+        // Hole cup - 4.25" diameter = 0.118 yards diameter = 0.059 yards radius
+        // Ball is 1.68" diameter = 0.047 yards diameter, so ball fits in hole
+        const cupRadius = 0.059; // Actual hole radius in yards
+        
+        // Create a filled dark circle for the hole (not just a ring)
+        const cupGeom = new THREE.CircleGeometry(cupRadius, 16);
+        const cupMat = new THREE.MeshBasicMaterial({ 
+            color: 0x000000,  // Pure black for visibility
+            side: THREE.DoubleSide 
+        });
         const cup = new THREE.Mesh(cupGeom, cupMat);
         cup.rotation.x = -Math.PI / 2; // Lay flat on ground
-        cup.position.y = 0.01; // Just above terrain
+        cup.position.y = 0.005; // Just above terrain to prevent z-fighting
         group.add(cup);
+        
+        // Add a subtle rim/edge around the hole for definition
+        const rimGeom = new THREE.RingGeometry(cupRadius, cupRadius + 0.008, 16);
+        const rimMat = new THREE.MeshBasicMaterial({ 
+            color: 0x222222, 
+            side: THREE.DoubleSide 
+        });
+        const rim = new THREE.Mesh(rimGeom, rimMat);
+        rim.rotation.x = -Math.PI / 2;
+        rim.position.y = 0.006;
+        group.add(rim);
 
         group.position.set(x, y, z);
         this.scene.add(group);
         return group;
     }
     
-    // Update flag scale based on camera distance - ensures minimum visible size
+    // Update flag scale based on camera distance - ensures minimum visible size at distance
+    // but stays at normal size when close
     updateFlagScale() {
         if (!this.flagGroup || !this.camera) return;
         
@@ -1479,18 +1498,23 @@ export class World {
         const camPos = this.camera.position;
         const distance = flagPos.distanceTo(camPos);
         
-        // Scale to maintain minimum screen size
-        // At 10 units: scale = 1 (normal size)
-        // Beyond that: scale proportionally to distance to maintain apparent size
-        const baseDistance = 10;
-        const minScale = 1;
+        // When close (< 20 units), use normal scale (1.0)
+        // When far, scale up slightly to maintain visibility
+        // This keeps the flag realistic when putting but visible from tee
+        const nearDistance = 20;
+        const farDistance = 200;
+        const minScale = 1.0;
+        const maxScale = 2.5;
         
         let scale;
-        if (distance <= baseDistance) {
+        if (distance <= nearDistance) {
             scale = minScale;
+        } else if (distance >= farDistance) {
+            scale = maxScale;
         } else {
-            // Scale proportionally to distance to maintain constant apparent size
-            scale = distance / baseDistance;
+            // Linear interpolation between near and far
+            const t = (distance - nearDistance) / (farDistance - nearDistance);
+            scale = minScale + t * (maxScale - minScale);
         }
         
         this.flagGroup.scale.set(scale, scale, scale);
@@ -1517,7 +1541,7 @@ export class World {
         const waveAmplitude = 0.005 + windIntensity * 0.02;
         const waveFrequency = 6 + windIntensity * 4;
         const waveSpeed = 4 + windIntensity * 3;
-        const flagWidth = 0.55;
+        const flagWidth = 0.6;  // Match the actual flag width
         
         const horizontalFactor = Math.sin(flagAngleRad);
         const verticalFactor = Math.cos(flagAngleRad);
