@@ -62,12 +62,12 @@ export const TERRAIN_COLORS = {
 export const HOLE = {
     DIAMETER_INCHES: 4.25,                      // regulation hole diameter
     RADIUS_YARDS: 0.059,                        // 4.25" / 2 / 36" = 0.059 yards
-    RADIUS_WORLD: 0.059 / 4,                    // in world units (0.0148)
+    RADIUS_WORLD: 0.059 * 0.60,                 // in world units, scaled to match visual (60% of full scale)
     DEPTH_INCHES: 4,                            // minimum hole depth
     // Ball capture physics
     MAX_CAPTURE_SPEED: 0.04,                    // max speed (world units/frame) to fall in - increased for better capture
     LIP_OUT_CHANCE: 0.3,                        // chance to lip out at edge speeds
-    EDGE_TOLERANCE: 1.5                         // multiplier for edge detection
+    EDGE_TOLERANCE: 1.0                         // multiplier for edge detection (ball center must be inside hole)
 };
 
 // Sky and sun configuration

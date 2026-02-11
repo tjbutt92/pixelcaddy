@@ -1,6 +1,7 @@
 // UI module - modals and button handlers
 import { clubs } from './clubs.js';
 import { showYardageBook, setYardageBookWorld, setObjectsToHide, setYardageBookBall } from './yardagebook/index.js';
+import { canInteract, getCurrentWindow, setTimingWindow, TimingWindow } from './caddySystem.js';
 
 const shapes = ['Draw', 'Straight', 'Fade'];
 
@@ -30,6 +31,19 @@ const shapeArrows = {
     'Fade': '→',
     'Slice': '→→'
 };
+
+/**
+ * Transition from StartOfHole to PreShot timing window when player starts shot setup
+ * Called when player interacts with any shot setup control (club, power, shape, aim)
+ * Validates: Requirements 2.1, 6.1-6.4
+ */
+function transitionToPreShotIfNeeded() {
+    if (getCurrentWindow() === TimingWindow.StartOfHole) {
+        setTimingWindow(TimingWindow.PreShot);
+        updateSpeakButtonVisibility();
+        console.log('Transitioned from StartOfHole to PreShot window');
+    }
+}
 
 // Check if current club is putter
 function isPutter(club) {
@@ -65,6 +79,9 @@ function createClubSelector(gameState, updateButtons) {
         
         item.addEventListener('click', (e) => {
             e.stopPropagation();
+            // Transition from StartOfHole to PreShot when player starts shot setup
+            // Validates: Requirements 2.1, 6.1-6.4
+            transitionToPreShotIfNeeded();
             // Update game state
             gameState.club = clubs[index];
             // Update selection highlight
@@ -90,17 +107,36 @@ function createClubSelector(gameState, updateButtons) {
 /**
  * Expands the club selector from the left
  * Requirements: 13.1
+ * Centers the scroll on the selected club (or as close as possible for edge clubs)
  */
 function expandClubSelector() {
     if (clubSelectorElement && !clubSelectorExpanded) {
+        const scrollContainer = clubSelectorElement.querySelector('.club-scroll');
+        
+        // Reset scroll position before expanding
+        if (scrollContainer) {
+            scrollContainer.scrollLeft = 0;
+        }
+        
         clubSelectorElement.classList.remove('collapsed');
         clubSelectorElement.classList.add('expanded');
         clubSelectorExpanded = true;
         
-        // Scroll to show selected club
+        // Center on selected club after expansion animation completes
         const selectedItem = clubSelectorElement.querySelector('.club-selector-item.selected');
-        if (selectedItem) {
-            selectedItem.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        if (selectedItem && scrollContainer) {
+            setTimeout(() => {
+                const containerWidth = scrollContainer.clientWidth;
+                const itemLeft = selectedItem.offsetLeft;
+                const itemWidth = selectedItem.offsetWidth;
+                
+                // Calculate scroll position to center the selected item
+                const scrollPos = itemLeft - (containerWidth / 2) + (itemWidth / 2);
+                
+                // Clamp to valid scroll range
+                const maxScroll = scrollContainer.scrollWidth - containerWidth;
+                scrollContainer.scrollLeft = Math.max(0, Math.min(scrollPos, maxScroll));
+            }, 100);
         }
     }
 }
@@ -164,6 +200,9 @@ function createPowerSlider(gameState, updateButtons) {
     // Handle slider input
     slider.addEventListener('input', (e) => {
         e.stopPropagation();
+        // Transition from StartOfHole to PreShot when player starts shot setup
+        // Validates: Requirements 2.1, 6.1-6.4
+        transitionToPreShotIfNeeded();
         const value = parseInt(slider.value);
         gameState.power = value;
         updateSliderColor(value);
@@ -339,6 +378,9 @@ function createShapeSlider(gameState, updateButtons) {
     // Handle slider input
     slider.addEventListener('input', (e) => {
         e.stopPropagation();
+        // Transition from StartOfHole to PreShot when player starts shot setup
+        // Validates: Requirements 2.1, 6.1-6.4
+        transitionToPreShotIfNeeded();
         const value = parseInt(slider.value);
         gameState.shape = shapeValues[String(value)];
         updateCurveHighlight(value);
@@ -354,6 +396,9 @@ function createShapeSlider(gameState, updateButtons) {
     curveDisplay.querySelectorAll('.curve-indicator').forEach(indicator => {
         indicator.addEventListener('click', (e) => {
             e.stopPropagation();
+            // Transition from StartOfHole to PreShot when player starts shot setup
+            // Validates: Requirements 2.1, 6.1-6.4
+            transitionToPreShotIfNeeded();
             const value = parseInt(indicator.dataset.value);
             slider.value = value;
             gameState.shape = shapeValues[String(value)];
@@ -603,6 +648,9 @@ export function setupUI(gameState, aimLine, ball, onHitShot, world = null, objec
         // Collapse power slider and shape slider if open
         collapsePowerSlider();
         collapseShapeSlider();
+        // Transition from StartOfHole to PreShot when player starts shot setup
+        // Validates: Requirements 2.1, 6.1-6.4
+        transitionToPreShotIfNeeded();
         toggleClubSelector();
     });
     
@@ -611,6 +659,9 @@ export function setupUI(gameState, aimLine, ball, onHitShot, world = null, objec
         // Collapse club selector and shape slider if open
         collapseClubSelector();
         collapseShapeSlider();
+        // Transition from StartOfHole to PreShot when player starts shot setup
+        // Validates: Requirements 2.1, 6.1-6.4
+        transitionToPreShotIfNeeded();
         if (isPutter(gameState.club)) {
             // Putter uses modal for distance selection
             collapsePowerSlider();
@@ -624,6 +675,9 @@ export function setupUI(gameState, aimLine, ball, onHitShot, world = null, objec
         // Collapse club selector and power slider if open
         collapseClubSelector();
         collapsePowerSlider();
+        // Transition from StartOfHole to PreShot when player starts shot setup
+        // Validates: Requirements 2.1, 6.1-6.4
+        transitionToPreShotIfNeeded();
         // No shot shape for putter - use expandable slider for other clubs
         if (!isPutter(gameState.club)) {
             toggleShapeSlider();
@@ -634,6 +688,9 @@ export function setupUI(gameState, aimLine, ball, onHitShot, world = null, objec
         collapseClubSelector();
         collapsePowerSlider();
         collapseShapeSlider();
+        // Transition from StartOfHole to PreShot when player starts shot setup
+        // Validates: Requirements 2.1, 6.1-6.4
+        transitionToPreShotIfNeeded();
         const isActive = aimLine.toggleAimMode();
         // Crosshairs symbol: ⊕ when inactive, ✓ when setting aim
         btnAim.textContent = isActive ? '✓' : '⊕';
@@ -819,14 +876,21 @@ export function createSimulatePuttButton(container, gameState, onSimulate) {
     // Create button if it doesn't exist
     if (!simulatePuttBtn) {
         simulatePuttBtn = document.createElement('button');
-        simulatePuttBtn.className = 'simulate-putt-btn hidden';
+        simulatePuttBtn.className = 'control-btn simulate-putt-btn hidden';
         simulatePuttBtn.textContent = 'Read';
         simulatePuttBtn.addEventListener('click', () => {
             if (!simulatePuttDisabled && simulatePuttCallback) {
                 simulatePuttCallback();
             }
         });
-        container.appendChild(simulatePuttBtn);
+        
+        // Find the speak button and insert before it, or at beginning if not found
+        const speakBtn = container.querySelector('.speak-btn');
+        if (speakBtn) {
+            container.insertBefore(simulatePuttBtn, speakBtn);
+        } else {
+            container.insertBefore(simulatePuttBtn, container.firstChild);
+        }
     }
     
     // Update visibility based on current club
@@ -886,5 +950,78 @@ export function resetSimulatePuttButton() {
         simulatePuttBtn.classList.remove('disabled');
         simulatePuttBtn.classList.remove('simulating');
         simulatePuttBtn.textContent = 'Read';
+    }
+}
+
+
+// Speak button state
+// Requirements: 4.1, 4.2 - Speak button for caddy interaction
+let speakBtn = null;
+let speakBtnCallback = null;
+
+/**
+ * Creates the Speak button for caddy interaction
+ * Square button with speech bubble icon, positioned above aim button on right side
+ * Requirements: 4.1, 4.2
+ * @param {HTMLElement} container - The container to append the button to (right-controls)
+ * @param {Function} onClick - Callback when button is clicked
+ */
+export function createSpeakButton(container, onClick) {
+    speakBtnCallback = onClick;
+    
+    // Create button if it doesn't exist
+    if (!speakBtn) {
+        speakBtn = document.createElement('button');
+        speakBtn.className = 'control-btn speak-btn hidden';
+        speakBtn.id = 'btn-speak';
+        speakBtn.textContent = '💬'; // Speech bubble emoji icon
+        speakBtn.title = 'Speak to golfer';
+        
+        speakBtn.addEventListener('click', () => {
+            if (speakBtnCallback && canInteract()) {
+                speakBtnCallback();
+            }
+        });
+        
+        // Insert at the beginning of container (above aim button)
+        container.insertBefore(speakBtn, container.firstChild);
+    }
+    
+    // Update visibility based on timing window
+    updateSpeakButtonVisibility();
+}
+
+/**
+ * Shows the Speak button
+ * Requirements: 4.1
+ */
+export function showSpeakButton() {
+    if (speakBtn) {
+        speakBtn.classList.remove('hidden');
+    }
+}
+
+/**
+ * Hides the Speak button
+ * Requirements: 4.1
+ */
+export function hideSpeakButton() {
+    if (speakBtn) {
+        speakBtn.classList.add('hidden');
+    }
+}
+
+/**
+ * Updates Speak button visibility based on timing window availability
+ * Shows the button when interaction is allowed (canInteract() returns true)
+ * Requirements: 4.1, 4.2
+ */
+export function updateSpeakButtonVisibility() {
+    if (!speakBtn) return;
+    
+    if (canInteract()) {
+        showSpeakButton();
+    } else {
+        hideSpeakButton();
     }
 }

@@ -3,13 +3,14 @@ import * as THREE from 'three';
 import { clubs } from './clubs.js';
 import { Ball } from './ball.js';
 import { AimLine } from './aim.js';
-import { setupUI, updateYardageIndicator, createSimulatePuttButton, updateSimulatePuttButtonVisibility, disableSimulatePuttButton, setSimulatePuttButtonSimulating, resetSimulatePuttButton } from './ui.js';
+import { setupUI, updateYardageIndicator, createSimulatePuttButton, updateSimulatePuttButtonVisibility, disableSimulatePuttButton, setSimulatePuttButtonSimulating, resetSimulatePuttButton, createSpeakButton, updateSpeakButtonVisibility } from './ui.js';
 import { ShotSimulator } from './shot.js';
 import { golfer, initializeGolferHistory, recordShot } from './golfer.js';
 import { course as defaultCourse } from '../courses/test_course.js';
 import { TerrainType, setCourse, getTerrainAt, getSlopeAt, getElevationAt } from './terrain.js';
 import { createWorld } from './world.js';
 import { createLieWindow, updateLieWindow } from './lieWindow.js';
+import { createStatsHUD, updateStatsHUD } from './statsHUD.js';
 import { determineLie } from './lie.js';
 import { validateTrees } from './trees.js';
 import { WORLD_SCALE } from './utils.js';
@@ -17,6 +18,369 @@ import { CAMERA, TIMING } from './constants.js';
 import { initializeWind, getWindForShot } from './wind.js';
 import { setLastShotData } from './yardagebook/golfer-tab.js';
 import { runPuttSimulations } from './puttSimulation.js';
+import { ShotOutcome, recordShotResult, recordHoleResult, getResultState } from './resultState.js';
+import { getCurrentWindow, markInteractionComplete, setTimingWindow, TimingWindow, handleSilence } from './caddySystem.js';
+import { getOptionsForWindow, calculateAllScaledEffects } from './dialogueOptions.js';
+import { showDialoguePanel } from './dialoguePanel.js';
+import { modifyStat, applyCarryover, resetToBaseline } from './mentalStats.js';
+import { 
+    initGolferSimulation, 
+    runGolferSimulation, 
+    displayPredictionLineAtPosition, 
+    hidePredictionLine,
+    trackShotSettings, 
+    checkIfAccepted, 
+    handleSimulationResult,
+    hasViewedGolferSimulation,
+    getSimulationResult,
+    resetSimulationState
+} from './golferSimulation.js';
+import {
+    analyzeHazards,
+    formatConcernsMessage,
+    showConcernsBubble,
+    hideConcernsBubble,
+    trackConcernSettings,
+    checkIfAdjusted as checkIfAdjustedForConcerns,
+    checkIfIgnoredObviousConcern,
+    handleConcernsResult,
+    applyIgnorePenalty,
+    hasViewedConcernsThisShot,
+    getIdentifiedConcerns,
+    getTrackedConcernSettings,
+    resetConcernsState
+} from './hazardAnalysis.js';
+import { checkAndShowGolferInitiation } from './golferConversation.js';
+
+/**
+ * Categorize shot outcome based on result data
+ * Validates: Requirements 5.1, 5.2
+ * @param {Object} shotData - Shot result data containing distanceError, directionError, lie, etc.
+ * @param {Object} newLie - The lie where the ball landed
+ * @returns {string} - A ShotOutcome value
+ */
+function categorizeShotOutcome(shotData, newLie) {
+    if (!shotData) return ShotOutcome.Acceptable;
+    
+    // Check for hazards first (highest priority)
+    if (newLie) {
+        const terrainName = newLie.name?.toLowerCase() || '';
+        if (terrainName.includes('water')) {
+            return ShotOutcome.HazardWater;
+        }
+        if (terrainName.includes('bunker') || terrainName.includes('sand')) {
+            return ShotOutcome.HazardBunker;
+        }
+    }
+    
+    // Check for tree hits (bad luck)
+    if (shotData.hitTree) {
+        return ShotOutcome.BadLuck;
+    }
+    
+    // Check for disaster (severe miss)
+    if (shotData.isMiss && Math.abs(shotData.distanceError) > 30) {
+        return ShotOutcome.Disaster;
+    }
+    
+    const distanceError = shotData.distanceError || 0;
+    const directionError = shotData.directionError || 0;
+    
+    // Thresholds for categorization (in yards)
+    const PERFECT_DISTANCE_THRESHOLD = 3;
+    const PERFECT_DIRECTION_THRESHOLD = 2;
+    const GOOD_DISTANCE_THRESHOLD = 8;
+    const GOOD_DIRECTION_THRESHOLD = 5;
+    const ACCEPTABLE_DISTANCE_THRESHOLD = 15;
+    const ACCEPTABLE_DIRECTION_THRESHOLD = 10;
+    
+    const absDistanceError = Math.abs(distanceError);
+    const absDirectionError = Math.abs(directionError);
+    
+    // Perfect shot: very close to intended
+    if (absDistanceError <= PERFECT_DISTANCE_THRESHOLD && absDirectionError <= PERFECT_DIRECTION_THRESHOLD) {
+        return ShotOutcome.Perfect;
+    }
+    
+    // Good shot: close to intended
+    if (absDistanceError <= GOOD_DISTANCE_THRESHOLD && absDirectionError <= GOOD_DIRECTION_THRESHOLD) {
+        return ShotOutcome.Good;
+    }
+    
+    // Acceptable shot: within reasonable range
+    if (absDistanceError <= ACCEPTABLE_DISTANCE_THRESHOLD && absDirectionError <= ACCEPTABLE_DIRECTION_THRESHOLD) {
+        return ShotOutcome.Acceptable;
+    }
+    
+    // Determine if it's primarily a distance or direction miss
+    // Compare relative errors to determine which is worse
+    const relativeDistanceError = absDistanceError / ACCEPTABLE_DISTANCE_THRESHOLD;
+    const relativeDirectionError = absDirectionError / ACCEPTABLE_DIRECTION_THRESHOLD;
+    
+    if (relativeDistanceError > relativeDirectionError) {
+        // Distance miss is worse
+        return distanceError < 0 ? ShotOutcome.MissDistanceShort : ShotOutcome.MissDistanceLong;
+    } else {
+        // Direction miss is worse
+        return directionError < 0 ? ShotOutcome.MissDirectionLeft : ShotOutcome.MissDirectionRight;
+    }
+}
+
+/**
+ * Handle Speak button click - wire dialogue panel to caddy system
+ * Validates: Requirements 3.1, 3.5, 3.8
+ */
+function handleSpeakButtonClick() {
+    // 1. Get the current timing window from caddySystem
+    const currentWindow = getCurrentWindow();
+    
+    // 2. Get the current result state for context
+    const state = getResultState();
+    
+    // 3. Get available options from dialogueOptions using getOptionsForWindow
+    // Validates: Requirement 3.8 - only display options relevant to current window and context
+    const options = getOptionsForWindow(currentWindow, state);
+    
+    if (!options || options.length === 0) {
+        console.log('No dialogue options available for current window:', currentWindow);
+        return;
+    }
+    
+    // 4. Show the dialogue panel with those options
+    // Validates: Requirement 3.1 - display dialogue panel overlay with available options
+    // Enable auto-close for caddy-initiated timing windows
+    showDialoguePanel(options, (selectedOptionId) => {
+        // 5. Handle selection callback
+        handleDialogueSelection(selectedOptionId, options, state);
+    }, golfer.mental, () => {
+        // 6. Handle silence callback - apply penalties for staying silent after negative outcomes
+        // Validates: Requirements 8.2, 8.6, 8.8
+        handleSilenceCallback(state);
+    }, true); // true = enable auto-close for timing windows
+}
+
+/**
+ * Handle silence callback - apply penalties when player stays silent after negative outcomes
+ * Validates: Requirements 8.2, 8.6, 8.8
+ * @param {Object} state - The current result state
+ */
+function handleSilenceCallback(state) {
+    // Only apply silence penalties in PostShot window
+    const currentWindow = getCurrentWindow();
+    if (currentWindow !== TimingWindow.PostShot) {
+        // Mark interaction complete even if no penalty applied
+        markInteractionComplete();
+        return;
+    }
+    
+    // Apply silence penalties using handleSilence from caddySystem
+    const appliedEffects = handleSilence(state, modifyStat);
+    
+    if (appliedEffects) {
+        console.log(`Player stayed silent after ${state.previousShotOutcome} - penalties applied`);
+    }
+    
+    // Mark interaction complete
+    markInteractionComplete();
+}
+
+/**
+ * Handle dialogue option selection - apply effects and mark interaction complete
+ * Validates: Requirement 3.5 - apply selected option's effects and close panel
+ * @param {string} selectedOptionId - The ID of the selected option
+ * @param {Array} options - The available options array
+ * @param {Object} state - The current result state
+ */
+function handleDialogueSelection(selectedOptionId, options, state) {
+    // Find the selected option
+    const selectedOption = options.find(opt => opt.id === selectedOptionId);
+    
+    if (!selectedOption) {
+        console.warn('Selected option not found:', selectedOptionId);
+        markInteractionComplete();
+        return;
+    }
+    
+    // Check for special actions
+    // Validates: Requirement 7.1 - "What do you think?" triggers golfer simulation
+    if (selectedOption.action === 'runSimulation') {
+        handleRunSimulationAction(selectedOption);
+        return;
+    }
+    
+    // Validates: Requirement 7.5, 7.6 - "What concerns you?" triggers hazard flagging
+    if (selectedOption.action === 'flagHazards') {
+        handleFlagHazardsAction(selectedOption);
+        return;
+    }
+    
+    // Calculate scaled effects using calculateAllScaledEffects
+    const scaledEffects = calculateAllScaledEffects(selectedOption, state);
+    
+    // Apply effects
+    if (scaledEffects.carryover) {
+        // Apply carryover effects (for next hole's baseline)
+        applyCarryover(scaledEffects);
+        console.log('Applied carryover effects:', scaledEffects);
+    } else {
+        // Apply immediate effects using modifyStat
+        for (const [stat, value] of Object.entries(scaledEffects)) {
+            // Skip non-stat properties
+            if (stat === 'carryover' || stat === 'nextShotModifier' || stat === 'nextHoleEffects') {
+                continue;
+            }
+            modifyStat(stat, value);
+        }
+        console.log('Applied immediate effects:', scaledEffects);
+    }
+    
+    // Store next shot modifier if present (for shot mechanics to use)
+    if (scaledEffects.nextShotModifier) {
+        gameState.nextShotModifier = scaledEffects.nextShotModifier;
+        console.log('Stored next shot modifier:', scaledEffects.nextShotModifier);
+    }
+    
+    // Mark interaction complete using markInteractionComplete
+    markInteractionComplete();
+    
+    console.log(`Dialogue option selected: "${selectedOption.text}"`);
+}
+
+/**
+ * Handle the "What do you think?" action - run golfer simulation
+ * Validates: Requirements 7.1, 7.2, 7.3, 7.4, 1.5
+ * @param {Object} option - The dialogue option with runSimulation action
+ */
+function handleRunSimulationAction(option) {
+    // Get current shot parameters
+    const ballPos = ball.getPosition();
+    const aimAngle = aimLine.getAngle();
+    const terrain = gameState.currentLie?.name?.toLowerCase() || 'fairway';
+    
+    const shotParams = {
+        clubName: gameState.club.name,
+        power: gameState.power,
+        shape: gameState.shape,
+        golferStats: golfer,
+        terrain: terrain,
+        wind: gameState.wind
+    };
+    
+    // Track current settings to detect changes later
+    // Validates: Requirements 7.3, 7.4
+    trackShotSettings({
+        club: gameState.club.name,
+        power: gameState.power,
+        shape: gameState.shape,
+        aimAngle: aimAngle
+    });
+    
+    // Run the golfer simulation with trust-based noise
+    // Validates: Requirements 7.1, 1.5
+    const trustLevel = golfer.mental.trust;
+    const simulationResult = runGolferSimulation(shotParams, trustLevel);
+    
+    if (simulationResult && simulationResult.trajectory) {
+        // Display yellow prediction line on 3D view
+        // Validates: Requirement 7.2
+        displayPredictionLineAtPosition(
+            simulationResult.trajectory, 
+            ballPos, 
+            aimAngle, 
+            world.worldTo3D.bind(world)
+        );
+        
+        console.log(`Golfer simulation: Predicted carry ${simulationResult.predictedCarry.toFixed(1)} yards, ` +
+                    `lateral ${simulationResult.predictedLateral.toFixed(1)} yards (noise: ±${(simulationResult.noiseApplied * 100).toFixed(0)}%)`);
+    } else {
+        console.warn('Golfer simulation failed to produce result');
+    }
+    
+    // Mark interaction complete
+    markInteractionComplete();
+    
+    console.log(`Dialogue option selected: "${option.text}" - Golfer simulation displayed`);
+}
+
+/**
+ * Handle the "What concerns you?" action - flag hazards
+ * Validates: Requirements 7.5, 7.6, 7.7, 7.8
+ * @param {Object} option - The dialogue option with flagHazards action
+ */
+function handleFlagHazardsAction(option) {
+    // Get current shot parameters
+    const ballPos = ball.getPosition();
+    const aimAngle = aimLine.getAngle();
+    
+    // Estimate expected distance based on club and power
+    const expectedDistance = estimateExpectedDistance(gameState.club.name, gameState.power);
+    
+    // Build shot setup for hazard analysis
+    const shotSetup = {
+        ballPos: ballPos,
+        aimAngle: aimAngle,
+        hole: gameState.currentHole,
+        lie: gameState.currentLie,
+        clubName: gameState.club.name,
+        power: gameState.power,
+        expectedDistance: expectedDistance
+    };
+    
+    // Analyze hazards
+    // Validates: Requirement 7.6
+    const hazards = analyzeHazards(shotSetup);
+    
+    // Format and display concerns message
+    const message = formatConcernsMessage(hazards);
+    showConcernsBubble(message);
+    
+    // Track current settings to detect changes later
+    // Validates: Requirements 7.7, 7.8
+    trackConcernSettings({
+        club: gameState.club.name,
+        power: gameState.power,
+        shape: gameState.shape,
+        aimAngle: aimAngle
+    });
+    
+    console.log(`Hazard analysis: ${hazards.hasAnyConcerns ? 'Concerns identified' : 'No major concerns'}`);
+    
+    // Mark interaction complete
+    markInteractionComplete();
+    
+    console.log(`Dialogue option selected: "${option.text}" - Concerns displayed`);
+}
+
+/**
+ * Estimate expected shot distance based on club and power
+ * @param {string} clubName - Name of the club
+ * @param {number} power - Power percentage (0-100)
+ * @returns {number} - Expected distance in yards
+ */
+function estimateExpectedDistance(clubName, power) {
+    // Base distances for each club (approximate)
+    const clubDistances = {
+        'Driver': 250,
+        '3 Wood': 220,
+        '5 Wood': 200,
+        '3 Hybrid': 190,
+        '4 Hybrid': 180,
+        '4 Iron': 170,
+        '5 Iron': 160,
+        '6 Iron': 150,
+        '7 Iron': 140,
+        '8 Iron': 130,
+        '9 Iron': 120,
+        'PW': 110,
+        'GW': 100,
+        'SW': 80,
+        'LW': 60,
+        'Putter': 30
+    };
+    
+    const baseDistance = clubDistances[clubName] || 150;
+    return baseDistance * (power / 100);
+}
 
 // Current course (default course loaded directly)
 let course = defaultCourse;
@@ -141,6 +505,10 @@ function initGame() {
     world.loadCourse(course);
     world.setHole(1);
     
+    // Initialize golfer simulation module with scene
+    // Validates: Requirements 7.1, 7.2
+    initGolferSimulation(scene);
+    
     // Create ball mesh
     createBallMesh();
     
@@ -155,6 +523,11 @@ function initGame() {
     // Initialize lie window
     createLieWindow();
     updateBallLie(hole1.tee.x, hole1.tee.y);
+    
+    // Initialize Stats HUD
+    // Validates: Requirements 4.4, 4.5
+    createStatsHUD(container);
+    updateStatsHUD(golfer.mental);
     
     // Initialize aim line
     aimLine.init(container, ball);
@@ -192,8 +565,15 @@ function initGame() {
     setupUI(gameState, aimLine, ball, hitShot, world, [aimLineMesh, ballMesh, shotTracerLine]);
     if (gameState.updateWindDisplay) gameState.updateWindDisplay(centrelineAngle);
     
-    // Setup putt simulation button
-    createSimulatePuttButton(container, gameState, runPuttSimulation);
+    // Setup Speak button for caddy interaction
+    // Validates: Requirements 3.1, 3.5, 3.8
+    const rightControls = document.querySelector('.right-controls');
+    if (rightControls) {
+        // Create speak button first
+        createSpeakButton(rightControls, handleSpeakButtonClick);
+        // Create Read (putt simulation) button - will be inserted before speak button
+        createSimulatePuttButton(rightControls, gameState, runPuttSimulation);
+    }
     
     // Setup camera controls
     setupCameraControls();
@@ -205,11 +585,29 @@ function initGame() {
     animate(0);
     
     console.log(`Golf game initialized! Wind: ${gameState.wind.speed} mph from ${gameState.wind.direction}°`);
+    
+    // Set StartOfHole timing window at hole initialization
+    // Validates: Requirements 2.1, 6.1-6.4
+    setTimingWindow(TimingWindow.StartOfHole);
+    updateSpeakButtonVisibility();
+    
+    // Check for first tee golfer initiation after a short delay
+    // Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5
+    setTimeout(() => {
+        const gameContext = {
+            holeNumber: 1,
+            isStartOfHole: true,
+            strokesOnHole: 0
+        };
+        checkAndShowGolferInitiation(golfer.mental, gameContext);
+    }, 1500); // Delay to let UI settle
 }
 
 function createBallMesh() {
-    // Golf ball is 1.68 inches diameter = 0.047 yards (low-poly for pixelated look)
-    const geom = new THREE.IcosahedronGeometry(0.047, 1);
+    // Golf ball is 1.68 inches diameter = 0.047 yards
+    // Scale by WORLD_SCALE (4) to convert yards to 3D units, then reduce to 33% for visual balance
+    const ballRadiusYards = 0.047;
+    const geom = new THREE.IcosahedronGeometry(ballRadiusYards * WORLD_SCALE * 0.33, 1);
     const mat = new THREE.MeshLambertMaterial({ 
         color: 0xffffff, 
         flatShading: true,
@@ -226,8 +624,8 @@ function updateBallMeshPosition() {
     const pos = ball.getPosition();
     const rawHeight = ball.getHeight();
     const pos3D = world.worldTo3D(pos.x, pos.y);
-    // Ball radius is 0.047 yards, add small offset (0.02) to ensure ball sits visibly on terrain
-    const ballRadius = 0.047;
+    // Ball radius is 0.047 yards, scaled by WORLD_SCALE * 0.33 for 3D positioning
+    const ballRadius = 0.047 * WORLD_SCALE * 0.33;
     const terrainOffset = 0.02; // Small offset to prevent z-fighting with terrain
     
     // If height is negative, ball is dropping into hole - use directly as yards
@@ -453,6 +851,36 @@ function startCameraFlyAlong(onComplete) {
     // Copy all tracer points for smooth interpolation
     cameraFlyPath = shotTracerPoints.map(p => p.clone());
     
+    // Find landing point (where ball first touches ground after being in air)
+    // and smooth out the Y values after landing to prevent camera bounce
+    let landingIndex = -1;
+    let maxHeight = 0;
+    let maxHeightIndex = 0;
+    
+    // Find apex
+    for (let i = 0; i < cameraFlyPath.length; i++) {
+        if (cameraFlyPath[i].y > maxHeight) {
+            maxHeight = cameraFlyPath[i].y;
+            maxHeightIndex = i;
+        }
+    }
+    
+    // Find landing (first point near ground after apex)
+    for (let i = maxHeightIndex; i < cameraFlyPath.length; i++) {
+        if (cameraFlyPath[i].y < 0.5) {
+            landingIndex = i;
+            break;
+        }
+    }
+    
+    // Smooth out Y values after landing - keep camera at ground level
+    if (landingIndex > 0) {
+        const groundY = cameraFlyPath[landingIndex].y;
+        for (let i = landingIndex; i < cameraFlyPath.length; i++) {
+            cameraFlyPath[i].y = groundY;
+        }
+    }
+    
     // Calculate cumulative distances for smooth parametric interpolation
     cameraFlyPath.distances = [0];
     for (let i = 1; i < cameraFlyPath.length; i++) {
@@ -603,7 +1031,7 @@ function updateAimLineMesh(ballX, ballY, aimAngle) {
     
     // The aim line should sit at the same height as the ball
     // Ball sits at: terrain elevation + ballRadius + small offset
-    const ballRadius = 0.047;
+    const ballRadius = 0.047 * WORLD_SCALE * 0.33;
     const ballTerrainOffset = 0.02;
     const lineHeight = ballRadius + ballTerrainOffset; // Match ball height above terrain
     
@@ -889,12 +1317,94 @@ function onShotComplete(finalPosition, shotData) {
     clearPuttSimulationPaths();
     resetSimulatePuttButton();
     
+    // Handle golfer simulation result if player viewed simulation
+    // Validates: Requirements 7.3, 7.4
+    if (hasViewedGolferSimulation() && shotData && !shotData.isPutt) {
+        const simulationResult = getSimulationResult();
+        const currentSettings = {
+            club: gameState.lastShotIntent?.club || gameState.club.name,
+            power: gameState.lastShotIntent?.power || gameState.power,
+            shape: gameState.lastShotIntent?.shape || gameState.shape,
+            aimAngle: aimLine.getAngle()
+        };
+        const wasAccepted = checkIfAccepted(currentSettings);
+        
+        // Apply trust effects based on whether player accepted or overrode
+        handleSimulationResult(
+            { carryYards: shotData.carry, lateralYards: shotData.lateral },
+            simulationResult,
+            wasAccepted
+        );
+        
+        // Hide the prediction line and reset simulation state
+        resetSimulationState();
+    }
+    
+    // Handle concerns result if player viewed concerns
+    // Validates: Requirements 7.7, 7.8
+    if (hasViewedConcernsThisShot() && shotData && !shotData.isPutt) {
+        const concerns = getIdentifiedConcerns();
+        const trackedSettings = getTrackedConcernSettings();
+        
+        if (concerns && trackedSettings) {
+            const currentSettings = {
+                club: gameState.lastShotIntent?.club || gameState.club.name,
+                power: gameState.lastShotIntent?.power || gameState.power,
+                shape: gameState.lastShotIntent?.shape || gameState.shape,
+                aimAngle: aimLine.getAngle()
+            };
+            
+            const wasAdjusted = checkIfAdjustedForConcerns(currentSettings, concerns);
+            
+            if (wasAdjusted) {
+                // Player adjusted based on concerns - apply Trust +5
+                // Validates: Requirement 7.7
+                handleConcernsResult(true, concerns);
+            } else if (checkIfIgnoredObviousConcern(currentSettings, concerns)) {
+                // Player ignored obvious concern - apply Trust -4, Pressure +5
+                // Validates: Requirement 7.8
+                applyIgnorePenalty();
+            }
+        }
+        
+        // Hide concerns bubble and reset state
+        resetConcernsState();
+    }
+    
     // Check if ball went in the hole!
     if (shotData && shotData.holed) {
         console.log('🎉 HOLED! Ball is in the cup!');
+        
+        // Calculate score relative to par for this hole
+        // For now, assume par is stored in gameState or default to par 4
+        const par = gameState.currentHole?.par || 4;
+        const scoreRelativeToPar = gameState.strokes - par;
+        
+        // Record the hole result for the caddy system
+        // Validates: Requirement 5.1
+        recordHoleResult(scoreRelativeToPar);
+        
+        // Set EndOfHole timing window when ball is holed
+        // Validates: Requirements 2.1, 9.1-9.4
+        setTimingWindow(TimingWindow.EndOfHole);
+        updateSpeakButtonVisibility();
+        
         showHoledMessage(() => {
-            // After celebration, could advance to next hole or show score
-            console.log(`Hole completed in ${gameState.strokes} strokes`);
+            // After celebration, show continue button to allow end-of-hole dialogue
+            console.log(`Hole completed in ${gameState.strokes} strokes (${scoreRelativeToPar >= 0 ? '+' : ''}${scoreRelativeToPar})`);
+            
+            showContinueButton(() => {
+                // Apply carryover effects before transitioning to next hole
+                // Validates: Requirement 12.3
+                resetToBaseline();
+                
+                // Clear EndOfHole window when transitioning to next hole
+                setTimingWindow(TimingWindow.None);
+                updateSpeakButtonVisibility();
+                
+                // TODO: Transition to next hole
+                console.log('Ready for next hole');
+            });
         });
         return;
     }
@@ -915,6 +1425,28 @@ function onShotComplete(finalPosition, shotData) {
         setLastShotData(shotData, clubName);
     }
     
+    // Track shot result for caddy system
+    // Validates: Requirements 5.1, 5.2
+    if (shotData && !shotData.isPutt) {
+        const outcome = categorizeShotOutcome(shotData, newLie);
+        recordShotResult(outcome);
+        console.log(`Shot outcome: ${outcome}`);
+        
+        // Check if golfer should initiate conversation after this shot
+        // Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5
+        const gameContext = {
+            holeNumber: 1, // TODO: Track actual hole number
+            isStartOfHole: false,
+            strokesOnHole: gameState.strokes
+        };
+        checkAndShowGolferInitiation(golfer.mental, gameContext);
+    }
+    
+    // Set PostShot timing window after shot simulation completes
+    // Validates: Requirement 2.3
+    setTimingWindow(TimingWindow.PostShot);
+    updateSpeakButtonVisibility();
+    
     // Update yardage indicator with new distance to hole
     // Requirements: 11.3 - Show current yardage to the hole
     updateYardageIndicator(gameState, ball);
@@ -925,6 +1457,11 @@ function onShotComplete(finalPosition, shotData) {
     const isPutt = shotData && shotData.isPutt;
     
     showContinueButton(() => {
+        // Clear PostShot window when Continue is tapped
+        // Validates: Requirement 2.3
+        setTimingWindow(TimingWindow.None);
+        updateSpeakButtonVisibility();
+        
         if (isPutt) {
             // Just update camera and aim for next shot
             clearShotTracer();
@@ -932,6 +1469,11 @@ function onShotComplete(finalPosition, shotData) {
             aimLine.render();
             updateCameraForBall(finalPosition.x, finalPosition.y, true);
             updateAimLineMesh(finalPosition.x, finalPosition.y, newAngle);
+            
+            // Set PreShot window for next shot setup
+            // Validates: Requirement 2.2
+            setTimingWindow(TimingWindow.PreShot);
+            updateSpeakButtonVisibility();
         } else {
             // Start camera fly-along, then set up for next shot
             startCameraFlyAlong(() => {
@@ -944,6 +1486,11 @@ function onShotComplete(finalPosition, shotData) {
                 const landedOnGreen = newLie?.name === 'Green';
                 updateCameraForBall(finalPosition.x, finalPosition.y, landedOnGreen);
                 updateAimLineMesh(finalPosition.x, finalPosition.y, newAngle);
+                
+                // Set PreShot window for next shot setup
+                // Validates: Requirement 2.2
+                setTimingWindow(TimingWindow.PreShot);
+                updateSpeakButtonVisibility();
             });
         }
     });

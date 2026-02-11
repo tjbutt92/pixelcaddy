@@ -32,7 +32,8 @@ export const golfer = {
     mental: {
         confidence: 70,
         pressure: 30,
-        focus: 75
+        focus: 75,
+        trust: 50
     },
     
     // Shot history per club - each shot is { x: yards off target (+ = right), y: yards off target (+ = long), thisRound: bool }

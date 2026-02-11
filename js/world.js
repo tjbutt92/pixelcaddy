@@ -1460,7 +1460,9 @@ export class World {
 
         // Hole cup - 4.25" diameter = 0.118 yards diameter = 0.059 yards radius
         // Ball is 1.68" diameter = 0.047 yards diameter, so ball fits in hole
-        const cupRadius = 0.059; // Actual hole radius in yards
+        // Scale by WORLD_SCALE (4) then reduce to 60% for visual balance
+        const cupRadiusYards = 0.059;
+        const cupRadius = cupRadiusYards * WORLD_SCALE * 0.60;
         
         // Create a filled dark circle for the hole (not just a ring)
         const cupGeom = new THREE.CircleGeometry(cupRadius, 16);
@@ -1474,7 +1476,7 @@ export class World {
         group.add(cup);
         
         // Add a subtle rim/edge around the hole for definition
-        const rimGeom = new THREE.RingGeometry(cupRadius, cupRadius + 0.008, 16);
+        const rimGeom = new THREE.RingGeometry(cupRadius, cupRadius + 0.008 * WORLD_SCALE * 0.60, 16);
         const rimMat = new THREE.MeshBasicMaterial({ 
             color: 0x222222, 
             side: THREE.DoubleSide 

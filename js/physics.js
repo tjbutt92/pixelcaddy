@@ -477,23 +477,52 @@ export function calculateLandingBehavior(trajectoryResult, terrain = 'fairway', 
 export function generateShotVariability(golferStats, clubName, conditions = {}) {
     const { missRate = 0.10, distStd = 3, dirStd = 3 } = golferStats;
     const { lie = null } = conditions;
-    
+    const mental = golferStats.mental || { confidence: 70, pressure: 30, focus: 75 };
+
     // Get additional miss chance from lie
     let lieMissIncrease = 0;
     if (lie && lie.data && lie.data.effects) {
         lieMissIncrease = lie.data.effects.missChanceIncrease || 0;
-        
+
         // Club difficulty affects lie penalty
         const clubDifficulty = getClubLieDifficulty(clubName);
         lieMissIncrease *= (1 + clubDifficulty * 0.5);
     }
-    
+
+    // Base miss rate
+    let adjustedMissRate = missRate;
+
+    // Confidence affects miss rate (Requirement 1.1)
+    if (mental.confidence < 40) {
+        adjustedMissRate *= 1.15;  // +15% miss rate for low confidence
+    } else if (mental.confidence > 80) {
+        adjustedMissRate *= 0.90;  // -10% miss rate for high confidence
+    }
+
+    // Apply lie penalty after confidence modifier
+    adjustedMissRate = Math.min(0.5, adjustedMissRate + lieMissIncrease);
+
+    // Pressure affects direction spread (Requirement 1.2)
+    let directionMultiplier = 1.0;
+    if (mental.pressure > 70) {
+        directionMultiplier = 1.20;  // +20% direction spread
+    }
+
+    // Focus affects distance spread (Requirement 1.3)
+    let distanceMultiplier = 1.0;
+    if (mental.focus < 50) {
+        distanceMultiplier = 1.10;  // +10% distance spread for low focus
+    } else if (mental.focus > 80) {
+        // -5% all spreads for high focus
+        directionMultiplier *= 0.95;
+        distanceMultiplier *= 0.95;
+    }
+
     // Roll for shot quality (lie affects miss chance)
-    const adjustedMissRate = Math.min(0.5, missRate + lieMissIncrease);
     const qualityRoll = Math.random();
     const isDisaster = qualityRoll < 0.008 + (lieMissIncrease * 0.3); // Reduced from 1% to 0.8%
     const isMiss = qualityRoll < adjustedMissRate;
-    
+
     let variability = {
         speedVariance: 0,
         launchAngleVariance: 0,
@@ -503,56 +532,59 @@ export function generateShotVariability(golferStats, clubName, conditions = {}) 
         isMiss: false,
         isDisaster: false
     };
-    
+
     if (isDisaster) {
         // Disaster shot - big miss (but toned down)
         variability.isDisaster = true;
         variability.isMiss = true;
         const disasterType = Math.random();
-        
+
         if (disasterType < 0.3) {
             // Topped - low launch, low spin, short
-            variability.speedVariance = -0.20 - Math.random() * 0.15;
+            variability.speedVariance = (-0.20 - Math.random() * 0.15) * distanceMultiplier;
             variability.launchAngleVariance = -6 - Math.random() * 4;
             variability.spinVariance = -0.4;
         } else if (disasterType < 0.5) {
             // Fat/chunk - very short
-            variability.speedVariance = -0.25 - Math.random() * 0.20;
+            variability.speedVariance = (-0.25 - Math.random() * 0.20) * distanceMultiplier;
             variability.launchAngleVariance = 3 + Math.random() * 4;
             variability.spinVariance = 0.2;
         } else if (disasterType < 0.75) {
-            // Big slice
-            variability.spinAxisOffset = 18 + Math.random() * 10;
-            variability.launchDirection = 3 + Math.random() * 3;
-            variability.speedVariance = -0.08;
+            // Big slice - apply direction multiplier
+            variability.spinAxisOffset = (18 + Math.random() * 10) * directionMultiplier;
+            variability.launchDirection = (3 + Math.random() * 3) * directionMultiplier;
+            variability.speedVariance = -0.08 * distanceMultiplier;
         } else {
-            // Big hook
-            variability.spinAxisOffset = -18 - Math.random() * 10;
-            variability.launchDirection = -3 - Math.random() * 3;
-            variability.speedVariance = -0.04;
+            // Big hook - apply direction multiplier
+            variability.spinAxisOffset = (-18 - Math.random() * 10) * directionMultiplier;
+            variability.launchDirection = (-3 - Math.random() * 3) * directionMultiplier;
+            variability.speedVariance = -0.04 * distanceMultiplier;
         }
     } else if (isMiss) {
         // Regular miss - moderate deviation, mostly short
         variability.isMiss = true;
-        // Speed variance skewed negative (mishits lose distance)
-        variability.speedVariance = -Math.abs(gaussianRandom() * 0.025) - 0.015;
+        // Speed variance skewed negative (mishits lose distance) - apply distance multiplier
+        variability.speedVariance = (-Math.abs(gaussianRandom() * 0.025) - 0.015) * distanceMultiplier;
         variability.launchAngleVariance = gaussianRandom() * 1.2;
         variability.spinVariance = gaussianRandom() * 0.06;
-        variability.spinAxisOffset = gaussianRandom() * 4;
-        variability.launchDirection = gaussianRandom() * 1.8;
+        // Apply direction multiplier to directional variance
+        variability.spinAxisOffset = gaussianRandom() * 4 * directionMultiplier;
+        variability.launchDirection = gaussianRandom() * 1.8 * directionMultiplier;
     } else {
         // Good shot - tight variance for scratch golfer
         // PGA Tour level: ~1-2% speed variance, minimal direction error
         const speedRoll = gaussianRandom() * 0.008;
-        variability.speedVariance = Math.min(speedRoll, 0.012) - 0.003;
+        variability.speedVariance = (Math.min(speedRoll, 0.012) - 0.003) * distanceMultiplier;
         variability.launchAngleVariance = gaussianRandom() * 0.4;
         variability.spinVariance = gaussianRandom() * 0.025;
-        variability.spinAxisOffset = gaussianRandom() * 1;
-        variability.launchDirection = gaussianRandom() * 0.5;
+        // Apply direction multiplier to directional variance
+        variability.spinAxisOffset = gaussianRandom() * 1 * directionMultiplier;
+        variability.launchDirection = gaussianRandom() * 0.5 * directionMultiplier;
     }
-    
+
     return variability;
 }
+
 
 /**
  * Full shot simulation combining all physics

@@ -179,6 +179,12 @@ export function renderGolferTab(container, hole) {
                     </div>
                     <div class="mental-label focus">Focus</div>
                 </div>
+                <div class="mental-state-display">
+                    <div class="mental-meter trust">
+                        <div class="mental-meter-fill" style="width: ${g.mental.trust}%"></div>
+                    </div>
+                    <div class="mental-label trust">Trust</div>
+                </div>
             </div>
             
             <div class="stat-section">

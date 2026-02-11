@@ -716,43 +716,232 @@ export class ShotSimulator {
     }
 
     /**
-     * Roll with gradual curve toward downhill
-     * Ball curves more as it slows down - like a breaking putt
+     * Roll with physics-based simulation similar to putting
+     * Ball reacts to slope, friction varies by terrain, and can roll into hole
      */
     animateCurvingRoll(start, end, duration, shotData, holeData) {
-        const startTime = performance.now();
+        // Calculate initial velocity from intended roll distance and direction
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const intendedDist = Math.sqrt(dx * dx + dy * dy);
         
-        // Get slope for curve calculation (slope points UPHILL, negate for downhill)
-        const slope = getSlopeAt(holeData, start.x, start.y);
+        if (intendedDist < 0.01) {
+            // No roll needed
+            this.ball.setPosition(start.x, start.y, 0);
+            this.isAnimating = false;
+            if (this.onComplete) this.onComplete(start, shotData);
+            return;
+        }
         
-        const animateRoll = (currentTime) => {
+        // Get terrain at landing spot for friction
+        const terrain = getTerrainAt(holeData, start.x, start.y) || 'fairway';
+        
+        // Terrain friction - greens are fast, rough is slow
+        const terrainFriction = {
+            'green': 0.035,
+            'fairway': 0.06,
+            'rough': 0.15,
+            'bunker': 0.25,
+            'tee': 0.06
+        };
+        const baseFriction = terrainFriction[terrain] || 0.06;
+        
+        // Simulate the roll physics to get the path
+        const rollPath = this.simulateGroundRoll(start, dx / intendedDist, dy / intendedDist, intendedDist, baseFriction, holeData);
+        
+        // Animate along the simulated path
+        const self = this;
+        const animDuration = Math.max(500, Math.min(2000, rollPath.duration));
+        let startTime = null;
+        
+        const holePos = holeData.hole;
+        const holeRadius = HOLE.RADIUS_WORLD;
+        let hasDropped = false;
+        let dropStartTime = null;
+        const dropDuration = 150;
+        
+        const animate = (currentTime) => {
+            if (startTime === null) startTime = currentTime;
+            
             const elapsed = currentTime - startTime;
-            const t = Math.min(elapsed / duration, 1);
+            const t = Math.min(elapsed / animDuration, 1);
             
-            // Ease out - ball decelerates
-            const easeT = 1 - Math.pow(1 - t, 3);
+            // Ease out for deceleration feel
+            const easeT = 1 - Math.pow(1 - t, 2);
             
-            // Linear interpolation toward end
-            let x = start.x + (end.x - start.x) * easeT;
-            let y = start.y + (end.y - start.y) * easeT;
+            // Find position along path
+            const pathIndex = Math.min(Math.floor(easeT * (rollPath.path.length - 1)), rollPath.path.length - 1);
+            const nextIndex = Math.min(pathIndex + 1, rollPath.path.length - 1);
+            const localT = (easeT * (rollPath.path.length - 1)) - pathIndex;
             
-            // Add curve toward downhill (negate slope) - increases as ball slows
-            const curveAmount = easeT * easeT * 0.3;
-            const totalDist = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-            x -= slope.x * totalDist * curveAmount;
-            y -= slope.y * totalDist * curveAmount;
+            const point = rollPath.path[pathIndex];
+            const nextPoint = rollPath.path[nextIndex];
             
-            this.ball.setPosition(x, y, 0);
+            if (!point || !nextPoint) {
+                const finalPos = rollPath.path[rollPath.path.length - 1];
+                self.ball.setPosition(finalPos.x, finalPos.y, rollPath.holed ? -0.15 : 0);
+                self.isAnimating = false;
+                if (rollPath.holed) shotData.holed = true;
+                if (self.onComplete) self.onComplete(finalPos, shotData);
+                return;
+            }
             
-            if (t < 1) {
-                requestAnimationFrame(animateRoll);
+            const x = point.x + (nextPoint.x - point.x) * localT;
+            const y = point.y + (nextPoint.y - point.y) * localT;
+            
+            // Handle hole drop animation
+            let height = 0;
+            if (rollPath.holed) {
+                const distToHole = Math.sqrt((x - holePos.x) ** 2 + (y - holePos.y) ** 2);
+                if (!hasDropped && distToHole < holeRadius) {
+                    hasDropped = true;
+                    dropStartTime = currentTime;
+                }
+                if (hasDropped) {
+                    const dropElapsed = currentTime - dropStartTime;
+                    const dropProgress = Math.min(dropElapsed / dropDuration, 1);
+                    height = -0.15 * (1 - Math.pow(1 - dropProgress, 2));
+                }
+            }
+            
+            self.ball.setPosition(x, y, height);
+            
+            if (t < 1 || (hasDropped && (currentTime - dropStartTime) < dropDuration)) {
+                requestAnimationFrame(animate);
             } else {
-                this.isAnimating = false;
-                if (this.onComplete) this.onComplete({ x, y }, shotData);
+                const finalPos = rollPath.path[rollPath.path.length - 1];
+                self.ball.setPosition(finalPos.x, finalPos.y, rollPath.holed ? -0.15 : 0);
+                self.isAnimating = false;
+                if (rollPath.holed) shotData.holed = true;
+                if (self.onComplete) self.onComplete(finalPos, shotData);
             }
         };
         
-        requestAnimationFrame(animateRoll);
+        requestAnimationFrame(animate);
+    }
+
+    /**
+     * Simulate ground roll with physics similar to putting
+     * Returns path points for animation
+     */
+    simulateGroundRoll(start, dirX, dirY, intendedDist, baseFriction, holeData) {
+        const path = [{ x: start.x, y: start.y }];
+        
+        // Hole position for capture detection
+        const holePos = holeData.hole;
+        const holeRadius = HOLE.RADIUS_WORLD;
+        
+        // Initial speed based on intended distance
+        // Using similar formula to putt simulation
+        const initialSpeed = Math.sqrt(2 * baseFriction * intendedDist) * 1.1;
+        
+        let velX = dirX * initialSpeed;
+        let velY = dirY * initialSpeed;
+        let x = start.x;
+        let y = start.y;
+        
+        const dt = 0.016; // ~60fps
+        const maxTime = 10;
+        
+        // Slope effects - similar to putt but slightly reduced for faster moving ball
+        const parallelSlopeEffect = 0.012;
+        const perpSlopeEffect = 0.004;
+        
+        let t = 0;
+        let stepCount = 0;
+        let holed = false;
+        
+        while (t < maxTime) {
+            const speed = Math.sqrt(velX * velX + velY * velY);
+            
+            // Check for hole capture
+            const distToHole = Math.sqrt((x - holePos.x) ** 2 + (y - holePos.y) ** 2);
+            if (distToHole < holeRadius * 1.2) {
+                if (distToHole < holeRadius && speed < HOLE.MAX_CAPTURE_SPEED) {
+                    holed = true;
+                    x = holePos.x;
+                    y = holePos.y;
+                    path.push({ x, y, speed: 0, holed: true });
+                    break;
+                } else if (distToHole < holeRadius && speed < HOLE.MAX_CAPTURE_SPEED * 2) {
+                    // Lip out chance
+                    if (Math.random() > HOLE.LIP_OUT_CHANCE) {
+                        holed = true;
+                        x = holePos.x;
+                        y = holePos.y;
+                        path.push({ x, y, speed: 0, holed: true });
+                        break;
+                    }
+                }
+            }
+            
+            // Stop when ball is essentially stopped
+            if (speed < 0.0003) break;
+            
+            // Get slope at current position
+            const slope = getSlopeAt(holeData, x, y);
+            
+            // Calculate direction of travel
+            const travelDirX = velX / speed;
+            const travelDirY = velY / speed;
+            const perpX = -travelDirY;
+            const perpY = travelDirX;
+            
+            // Slope vector (negative for downhill pull)
+            const slopeVecX = -slope.x;
+            const slopeVecY = -slope.y;
+            
+            // Project slope onto parallel and perpendicular components
+            const parallelComponent = slopeVecX * travelDirX + slopeVecY * travelDirY;
+            const perpComponent = slopeVecX * perpX + slopeVecY * perpY;
+            
+            // Apply slope effects
+            const parallelAccel = parallelComponent * parallelSlopeEffect;
+            const perpAccel = perpComponent * perpSlopeEffect;
+            
+            const slopeAccelX = parallelAccel * travelDirX + perpAccel * perpX;
+            const slopeAccelY = parallelAccel * travelDirY + perpAccel * perpY;
+            
+            // Rolling friction - decreases at low speeds
+            const speedFactor = Math.min(1, speed / 0.15);
+            const effectiveFriction = baseFriction * (0.3 + 0.7 * speedFactor);
+            const fricAccelX = -(velX / speed) * effectiveFriction;
+            const fricAccelY = -(velY / speed) * effectiveFriction;
+            
+            // Update velocity and position
+            velX += (slopeAccelX + fricAccelX) * dt;
+            velY += (slopeAccelY + fricAccelY) * dt;
+            x += velX * dt;
+            y += velY * dt;
+            
+            // Store path points
+            stepCount++;
+            if (stepCount % 3 === 0) {
+                path.push({ x, y, speed });
+            }
+            
+            t += dt;
+        }
+        
+        // Final hole check
+        if (!holed) {
+            const finalDistToHole = Math.sqrt((x - holePos.x) ** 2 + (y - holePos.y) ** 2);
+            if (finalDistToHole < holeRadius) {
+                holed = true;
+                x = holePos.x;
+                y = holePos.y;
+            }
+        }
+        
+        if (!holed) {
+            path.push({ x, y, speed: 0 });
+        }
+        
+        return {
+            path,
+            holed,
+            duration: Math.max(500, Math.min(2500, t * 400))
+        };
     }
 
     getCurveOffset(shape, distance) {

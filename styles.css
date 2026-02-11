@@ -884,11 +884,13 @@ body {
 
 .mental-meter.pressure .mental-meter-fill { background-color: var(--color-accent-red); }
 .mental-meter.focus .mental-meter-fill { background-color: var(--color-accent-blue); }
+.mental-meter.trust .mental-meter-fill { background-color: var(--color-accent-yellow); }
 
 .mental-label { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .mental-label.confidence { color: var(--color-accent-purple); }
 .mental-label.pressure { color: var(--color-accent-red); }
 .mental-label.focus { color: var(--color-accent-blue); }
+.mental-label.trust { color: var(--color-accent-yellow); }
 
 .mental-effects { display: flex; flex-direction: column; gap: var(--space-md); }
 
@@ -1544,12 +1546,21 @@ body {
     right: var(--space-md);
     bottom: 100px;
     z-index: 50;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Control button wrapper - provides positioning context for expandable elements */
+.control-btn-wrapper {
+    position: relative;
 }
 
 /* Control button base styles */
 .control-btn {
     min-width: 60px;
     width: 60px;
+    height: 48px; /* Fixed height for consistent expandable alignment */
     padding: var(--space-md) var(--space-sm);
     background: var(--color-bg-secondary);
     color: var(--color-text-primary);
@@ -1563,6 +1574,9 @@ body {
     -webkit-tap-highlight-color: transparent;
     /* No shadows, gradients, or backdrop-filter */
     text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .control-btn:hover {
@@ -1687,12 +1701,12 @@ body {
    Requirements: 13.1, 13.2, 13.3, 13.5
    ============================================ */
 
-/* Club selector container - expands from left */
+/* Club selector container - expands from left, aligned with button */
 .club-selector {
     position: absolute;
     left: 100%;
-    top: 0;
-    height: 100%;
+    top: 50%;
+    transform: translateY(-50%);
     display: flex;
     align-items: center;
     margin-left: var(--space-sm);
@@ -1710,17 +1724,20 @@ body {
 
 /* Expanded state - visible with horizontal scroll */
 .club-selector.expanded {
-    max-width: 280px;
+    max-width: 245px; /* Width for ~5 clubs plus padding */
     opacity: 1;
     pointer-events: auto;
 }
 
-/* Horizontal scroll container */
+/* Horizontal scroll container - matches button height */
 .club-scroll {
     display: flex;
     flex-direction: row;
     gap: var(--space-xs);
-    padding: var(--space-xs) var(--space-sm);
+    padding: 0 var(--space-sm);
+    height: 48px; /* Match control button height */
+    width: 245px; /* Fixed width for consistency */
+    align-items: center;
     overflow-x: auto;
     overflow-y: hidden;
     scroll-behavior: smooth;
@@ -1738,11 +1755,11 @@ body {
     display: none;
 }
 
-/* Individual club item in selector */
+/* Individual club item in selector - sized to fit within scroll container */
 .club-selector-item {
     flex-shrink: 0;
-    width: 44px;
-    height: 44px;
+    width: 38px;
+    height: 38px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1793,10 +1810,7 @@ body {
     font-size: var(--font-size-lg);
 }
 
-/* Position club selector relative to club button */
-#btn-club {
-    position: relative;
-}
+/* Position handled by .control-btn-wrapper */
 
 
 /* ============================================
@@ -1804,12 +1818,12 @@ body {
    Requirements: 14.1, 14.2, 14.3
    ============================================ */
 
-/* Power slider container - expands from left */
+/* Power slider container - expands from left, aligned with button */
 .power-slider-expandable {
     position: absolute;
     left: 100%;
-    top: 0;
-    height: 100%;
+    top: 50%;
+    transform: translateY(-50%);
     display: flex;
     align-items: center;
     margin-left: var(--space-sm);
@@ -1828,18 +1842,20 @@ body {
 
 /* Expanded state - visible */
 .power-slider-expandable.expanded {
-    max-width: 220px;
+    max-width: 245px; /* Match club selector width */
     opacity: 1;
     pointer-events: auto;
 }
 
-/* Slider track container */
+/* Slider track container - matches button height */
 .power-slider-track {
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
+    padding: 0 var(--space-md);
+    height: 48px; /* Match control button height */
+    width: 245px; /* Match club selector width */
     background: rgba(20, 20, 20, 0.95);
     border-radius: 0;
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -1848,7 +1864,7 @@ body {
 
 /* The range input slider with color gradient */
 .power-range-expandable {
-    width: 120px;
+    flex: 1;
     height: 32px;
     -webkit-appearance: none;
     appearance: none;
@@ -1874,24 +1890,22 @@ body {
 .power-range-expandable::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 24px;
+    width: 12px;
     height: 24px;
     background: var(--power-color);
-    border: 3px solid var(--color-text-primary);
+    border: none;
     border-radius: 0;
     cursor: pointer;
     margin-top: -8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    transition: transform var(--transition-fast);
 }
 
 .power-range-expandable::-webkit-slider-thumb:hover {
-    transform: scale(1.1);
-    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+    transform: scaleX(1.2);
 }
 
 .power-range-expandable::-webkit-slider-thumb:active {
-    transform: scale(0.95);
+    transform: scaleX(0.9);
 }
 
 /* Slider track - Firefox */
@@ -1909,17 +1923,16 @@ body {
 
 /* Slider thumb - Firefox */
 .power-range-expandable::-moz-range-thumb {
-    width: 24px;
+    width: 12px;
     height: 24px;
     background: var(--power-color);
-    border: 3px solid var(--color-text-primary);
+    border: none;
     border-radius: 0;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 .power-range-expandable::-moz-range-thumb:hover {
-    transform: scale(1.1);
+    transform: scaleX(1.2);
 }
 
 /* Percentage display */
@@ -1933,10 +1946,7 @@ body {
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-/* Position power slider relative to power button */
-#btn-power {
-    position: relative;
-}
+/* Position handled by .control-btn-wrapper */
 
 
 /* ============================================
@@ -1944,12 +1954,12 @@ body {
    Requirements: 15.1, 15.2, 15.3, 15.4
    ============================================ */
 
-/* Shape slider container - expands from left */
+/* Shape slider container - expands from left, aligned with button */
 .shape-slider-expandable {
     position: absolute;
     left: 100%;
-    top: 0;
-    height: 100%;
+    top: 50%;
+    transform: translateY(-50%);
     display: flex;
     align-items: center;
     margin-left: var(--space-sm);
@@ -1968,18 +1978,21 @@ body {
 
 /* Expanded state - visible */
 .shape-slider-expandable.expanded {
-    max-width: 280px;
+    max-width: 245px; /* Match club selector width */
     opacity: 1;
     pointer-events: auto;
 }
 
-/* Slider track container */
+/* Slider track container - matches button height, horizontal layout */
 .shape-slider-track {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
+    justify-content: center;
     gap: var(--space-xs);
-    padding: var(--space-sm) var(--space-md);
+    padding: 0 var(--space-sm);
+    height: 48px; /* Match control button height */
+    width: 245px; /* Match club selector width */
     background: rgba(20, 20, 20, 0.95);
     border-radius: 0;
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -1991,18 +2004,18 @@ body {
 .curve-display {
     display: flex;
     flex-direction: row;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-    width: 100%;
-    padding: 0 var(--space-xs);
+    gap: 2px;
+    padding: 0;
 }
 
-/* Individual curve indicator */
+/* Individual curve indicator - compact for horizontal layout */
 .curve-indicator {
-    font-size: 18px;
+    font-size: 16px;
     color: var(--color-text-muted);
     cursor: pointer;
-    padding: var(--space-xs);
+    padding: 4px 6px;
     border-radius: var(--radius-sm);
     transition: color var(--transition-fast), 
                 background-color var(--transition-fast),
@@ -2074,15 +2087,10 @@ body {
     text-shadow: 0 0 8px rgba(243, 156, 18, 0.6);
 }
 
-/* The range input slider */
+/* The range input slider - hidden, using curve indicators instead */
 /* Requirements: 15.3 - Range from hard hook (-2) to hard slice (2) with straight (0) in center */
 .shape-range-expandable {
-    width: 180px;
-    height: 32px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-    cursor: pointer;
+    display: none;
 }
 
 /* Slider track - WebKit (Chrome, Safari) */
@@ -2152,10 +2160,7 @@ body {
     transform: scale(1.1);
 }
 
-/* Position shape slider relative to shape button */
-#btn-shape {
-    position: relative;
-}
+/* Position handled by .control-btn-wrapper */
 
 
 /* ============================================
@@ -2341,35 +2346,10 @@ body {
 }
 
 /* ============================================
-   PUTT SIMULATION BUTTON
+   PUTT SIMULATION BUTTON (Read button)
    ============================================ */
 .simulate-putt-btn {
-    position: absolute;
-    bottom: 156px;
-    right: var(--space-md);
-    min-width: 60px;
-    width: 60px;
-    padding: var(--space-md) var(--space-sm);
-    background: var(--color-bg-secondary);
-    color: var(--color-text-primary);
-    border: 2px solid var(--color-text-muted);
-    border-radius: 0;
-    font-family: var(--font-family);
-    font-size: var(--font-size-lg);
-    font-weight: normal;
-    cursor: pointer;
-    z-index: 50;
-    transition: background-color var(--transition-fast);
-    text-align: center;
-    -webkit-tap-highlight-color: transparent;
-}
-
-.simulate-putt-btn:hover {
-    background: var(--color-bg-tertiary);
-}
-
-.simulate-putt-btn:active {
-    background: var(--color-bg-hover);
+    /* Inherits from .control-btn, just needs overrides */
 }
 
 .simulate-putt-btn.disabled {
@@ -2386,4 +2366,354 @@ body {
 .simulate-putt-btn.simulating {
     opacity: 0.5;
     pointer-events: none;
+}
+
+/* ============================================
+   CADDY SYSTEM UI COMPONENTS
+   Requirements: 3.2, 4.2, 4.4
+   ============================================ */
+
+/* Stats HUD - Top-left corner display
+   Requirement 4.4: Small golfer portrait and 4 slim bars */
+.stats-hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 0;
+    z-index: 100;
+}
+
+.stats-hud-portrait {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+    border-radius: 0;
+    border: 2px solid var(--color-text-muted);
+    flex-shrink: 0;
+}
+
+.stats-hud-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.stats-hud-bar-wrapper {
+    width: 60px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 0;
+    overflow: hidden;
+}
+
+.stats-hud-bar-fill {
+    height: 100%;
+    border-radius: 0;
+    transition: width 300ms ease-out;
+}
+
+/* Stat bar colors - just colors, no text per requirement 4.4 */
+.stats-hud-bar-fill-confidence {
+    background-color: var(--color-accent-green);
+}
+
+.stats-hud-bar-fill-pressure {
+    background-color: var(--color-accent-red);
+}
+
+.stats-hud-bar-fill-focus {
+    background-color: var(--color-accent-blue);
+}
+
+.stats-hud-bar-fill-trust {
+    background-color: var(--color-accent-yellow);
+}
+
+/* ============================================
+   SPEAK BUTTON WRAPPER - Positioning context for dialogue panel
+   ============================================ */
+.speak-btn-wrapper {
+    position: relative;
+}
+
+/* ============================================
+   DIALOGUE PANEL - Slide-out from right
+   Requirement 3.2: Same square-themed button style as existing UI
+   ============================================ */
+
+/* Dialogue panel container - slides from right of speak button */
+.dialogue-panel-slideout {
+    position: absolute;
+    right: 100%;
+    bottom: 0;
+    margin-right: var(--space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    overflow: hidden;
+    transition: max-width 0.3s ease, opacity 0.3s ease;
+    z-index: 145;
+}
+
+/* Collapsed state - hidden */
+.dialogue-panel-slideout.collapsed {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Expanded state - visible */
+.dialogue-panel-slideout.expanded {
+    max-width: 245px; /* Match club selector width */
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.dialogue-mood-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    font-size: var(--font-size-lg);
+    white-space: nowrap;
+}
+
+.dialogue-mood-indicator .mood-label {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-family: var(--font-family);
+}
+
+.dialogue-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    width: 245px; /* Match club selector width */
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Dialogue option buttons - square-themed matching existing UI
+   Requirement 3.2: Same square-themed button style */
+.dialogue-option-btn {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+    border: none;
+    border-radius: 0;
+    font-family: var(--font-family);
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), opacity var(--transition-fast);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    -webkit-tap-highlight-color: transparent;
+    white-space: nowrap;
+}
+
+.dialogue-option-btn:hover {
+    background-color: var(--color-bg-tertiary);
+}
+
+.dialogue-option-btn:active {
+    background-color: var(--color-bg-hover);
+}
+
+.dialogue-option-btn.disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.dialogue-option-btn .option-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dialogue-option-btn .stat-indicators {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: var(--space-sm);
+}
+
+.dialogue-option-btn .stat-indicator {
+    font-size: var(--font-size-xs);
+    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Stay Silent button - muted style */
+.dialogue-silent-btn {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    margin-top: var(--space-xs);
+    background-color: var(--color-bg-tertiary);
+    color: var(--color-text-muted);
+    border: none;
+    border-radius: 0;
+    font-family: var(--font-family);
+    font-size: var(--font-size-sm);
+    text-align: center;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), opacity var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dialogue-silent-btn:hover {
+    background-color: var(--color-bg-hover);
+}
+
+.dialogue-silent-btn:active {
+    background-color: var(--color-bg-secondary);
+}
+
+.dialogue-silent-btn.disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Legacy overlay styles - kept for backwards compatibility */
+.dialogue-panel-overlay {
+    display: none;
+}
+
+.dialogue-panel {
+    display: none;
+}
+
+/* Golfer Bubble - Speech bubble appearance
+   Requirement 10.2: Middle-top screen position */
+.golfer-bubble {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    z-index: 140;
+    opacity: 0;
+    transition: opacity 200ms ease, transform 200ms ease;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.golfer-bubble-content {
+    background-color: var(--color-bg-primary);
+    border: 2px solid var(--color-accent-green);
+    border-radius: 0;
+    padding: var(--space-md) var(--space-lg);
+    max-width: 280px;
+    min-width: 120px;
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.golfer-bubble:hover .golfer-bubble-content {
+    border-color: var(--color-accent-yellow);
+}
+
+.golfer-bubble-text {
+    color: var(--color-text-primary);
+    font-family: var(--font-family);
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+    text-align: center;
+}
+
+.golfer-bubble-hint {
+    color: var(--color-text-muted);
+    font-family: var(--font-family);
+    font-size: var(--font-size-xs);
+    text-align: center;
+    margin-top: 6px;
+    opacity: 0.8;
+}
+
+/* Speech bubble tail - pointing down */
+.golfer-bubble-tail {
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid var(--color-accent-green);
+}
+
+.golfer-bubble:hover .golfer-bubble-tail {
+    border-top-color: var(--color-accent-yellow);
+}
+
+.golfer-bubble-tail-inner {
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid var(--color-bg-primary);
+}
+
+/* Speak Button - Square button matching existing UI
+   Requirement 4.2: Speech bubble icon consistent with game's square button style */
+.speak-btn {
+    min-width: 50px;
+    min-height: 50px;
+    width: 50px;
+    height: 50px;
+    border-radius: 0;
+    font-size: var(--font-size-lg);
+    background: rgba(30, 30, 30, 0.9);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    margin-bottom: var(--space-sm);
+    color: var(--color-text-primary);
+    font-family: var(--font-family);
+    cursor: pointer;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.speak-btn:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.speak-btn:active {
+    background: var(--color-bg-hover);
+}
+
+.speak-btn:focus {
+    outline: none;
+    border-color: var(--color-accent-green);
+}
+
+.speak-btn.hidden {
+    display: none;
+}
+
+/* Speak button active state when dialogue is open */
+.speak-btn.active {
+    background: var(--color-fairway);
+    border-color: var(--color-accent-green);
 }
