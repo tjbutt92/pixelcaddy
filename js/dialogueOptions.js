@@ -195,12 +195,13 @@ export const postShotOptions = {
         }
     ],
     
-    // Water hazard options
+    // Water hazard options - caddy decides how to resolve (drop vs replay)
     // Validates: Requirements 8.5, 8.6
     [ShotOutcome.HazardWater]: [
         {
-            id: 'water_reset',
-            text: "Water happens - reset",
+            id: 'water_drop_crossing',
+            text: "Drop where it crossed – one penalty stroke",
+            action: 'waterDropCrossing',
             baseEffects: { pressure: -18, trust: 6 },
             scalingRules: [
                 { condition: (state) => state.trend === Trend.Cold, stat: 'pressure', scale: 1.39 }
@@ -208,6 +209,26 @@ export const postShotOptions = {
             silenceEffects: { pressure: 12 },
             silenceScalingRules: [
                 { condition: (state) => state.trend === Trend.Cold, stat: 'pressure', scale: 1.5 }
+            ],
+            effectType: 'calming'
+        },
+        {
+            id: 'water_replay',
+            text: "Play again from previous spot – one penalty stroke",
+            action: 'waterReplay',
+            baseEffects: { pressure: -15, focus: 8 },
+            scalingRules: [
+                { condition: (state) => state.trend === Trend.Cold, stat: 'pressure', scale: 1.33 }
+            ],
+            effectType: 'calming'
+        },
+        {
+            id: 'water_reset',
+            text: "Water happens – reset (drop where it crossed)",
+            action: 'waterDropCrossing',
+            baseEffects: { pressure: -18, trust: 6 },
+            scalingRules: [
+                { condition: (state) => state.trend === Trend.Cold, stat: 'pressure', scale: 1.39 }
             ],
             effectType: 'calming'
         }

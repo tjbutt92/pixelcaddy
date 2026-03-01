@@ -20,7 +20,7 @@ import { setLastShotData } from './yardagebook/golfer-tab.js';
 import { runPuttSimulations } from './puttSimulation.js';
 import { ShotOutcome, recordShotResult, recordHoleResult, getResultState } from './resultState.js';
 import { getCurrentWindow, markInteractionComplete, setTimingWindow, TimingWindow, handleSilence } from './caddySystem.js';
-import { getOptionsForWindow, calculateAllScaledEffects } from './dialogueOptions.js';
+import { getOptionsForWindow, calculateAllScaledEffects, postShotOptions } from './dialogueOptions.js';
 import { showDialoguePanel } from './dialoguePanel.js';
 import { modifyStat, applyCarryover, resetToBaseline } from './mentalStats.js';
 import { 
@@ -62,7 +62,12 @@ import { checkAndShowGolferInitiation } from './golferConversation.js';
 function categorizeShotOutcome(shotData, newLie) {
     if (!shotData) return ShotOutcome.Acceptable;
     
-    // Check for hazards first (highest priority)
+    // Shot simulation knows if ball landed or rolled into water - use that first
+    if (shotData.landedInWater || shotData.rolledIntoWater) {
+        return ShotOutcome.HazardWater;
+    }
+    
+    // Check for hazards from lie/terrain (in case terrain lookup catches it)
     if (newLie) {
         const terrainName = newLie.name?.toLowerCase() || '';
         if (terrainName.includes('water')) {
@@ -214,6 +219,11 @@ function handleDialogueSelection(selectedOptionId, options, state) {
         return;
     }
     
+    // Water hazard resolution - caddy decides how to proceed (drop or replay)
+    if (selectedOption.action === 'waterDropCrossing' || selectedOption.action === 'waterReplay') {
+        handleWaterResolutionAction(selectedOption);
+    }
+    
     // Calculate scaled effects using calculateAllScaledEffects
     const scaledEffects = calculateAllScaledEffects(selectedOption, state);
     
@@ -349,6 +359,85 @@ function handleFlagHazardsAction(option) {
     markInteractionComplete();
     
     console.log(`Dialogue option selected: "${option.text}" - Concerns displayed`);
+}
+
+/**
+ * Handle water hazard resolution - apply penalty stroke and move ball per caddy decision
+ * Validates: Water hazard is a caddy decision (drop where crossed or replay)
+ * @param {Object} option - Selected option with action 'waterDropCrossing' or 'waterReplay'
+ */
+function handleWaterResolutionAction(option) {
+    const data = gameState.waterResolutionData;
+    if (!data || !data.shotData) {
+        console.warn('Water resolution data missing');
+        return;
+    }
+    const { shotData, finalPosition } = data;
+    
+    // One stroke penalty
+    gameState.strokes++;
+    
+    let dropX, dropY;
+    if (option.action === 'waterReplay') {
+        const start = shotData.shotStartPosition;
+        if (start) {
+            dropX = start.x;
+            dropY = start.y;
+        } else {
+            dropX = finalPosition.x;
+            dropY = finalPosition.y;
+        }
+    } else {
+        // waterDropCrossing: use last dry point if we have it (rolled into water), else walk back from water
+        if (shotData.waterLastDryPoint) {
+            dropX = shotData.waterLastDryPoint.x;
+            dropY = shotData.waterLastDryPoint.y;
+        } else if (shotData.waterPosition && shotData.shotStartPosition) {
+            const wx = shotData.waterPosition.x;
+            const wy = shotData.waterPosition.y;
+            const sx = shotData.shotStartPosition.x;
+            const sy = shotData.shotStartPosition.y;
+            const dx = wx - sx;
+            const dy = wy - sy;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const step = 0.15;
+            let t = dist;
+            while (t > 0) {
+                const x = sx + (dx / dist) * t;
+                const y = sy + (dy / dist) * t;
+                const terrain = getTerrainAt(gameState.currentHole, x, y);
+                if (terrain !== 'water') {
+                    dropX = x;
+                    dropY = y;
+                    break;
+                }
+                t -= step;
+            }
+            if (dropX === undefined) {
+                dropX = sx;
+                dropY = sy;
+            } else {
+                const margin = 0.5;
+                const nx = dx / dist;
+                const ny = dy / dist;
+                dropX = dropX - nx * margin;
+                dropY = dropY - ny * margin;
+            }
+        } else {
+            dropX = shotData.shotStartPosition ? shotData.shotStartPosition.x : finalPosition.x;
+            dropY = shotData.shotStartPosition ? shotData.shotStartPosition.y : finalPosition.y;
+        }
+    }
+    
+    if (getTerrainAt(gameState.currentHole, dropX, dropY) === 'water') {
+        dropX = shotData.shotStartPosition?.x ?? finalPosition.x;
+        dropY = shotData.shotStartPosition?.y ?? finalPosition.y;
+    }
+    
+    ball.setPosition(dropX, dropY, 0);
+    gameState.waterResolvedPosition = { x: dropX, y: dropY };
+    gameState.pendingWaterResolution = false;
+    console.log(`Water hazard resolved: ball at (${dropX.toFixed(1)}, ${dropY.toFixed(1)}), stroke count ${gameState.strokes}`);
 }
 
 /**
@@ -1426,10 +1515,11 @@ function onShotComplete(finalPosition, shotData) {
         setLastShotData(shotData, clubName);
     }
     
-    // Track shot result for caddy system
+    // Track shot result for caddy system and determine outcome (used for water hazard flow)
     // Validates: Requirements 5.1, 5.2
+    let outcome = null;
     if (shotData && !shotData.isPutt) {
-        const outcome = categorizeShotOutcome(shotData, newLie);
+        outcome = categorizeShotOutcome(shotData, newLie);
         recordShotResult(outcome);
         console.log(`Shot outcome: ${outcome}`);
         
@@ -1440,13 +1530,52 @@ function onShotComplete(finalPosition, shotData) {
             isStartOfHole: false,
             strokesOnHole: gameState.strokes
         };
-        checkAndShowGolferInitiation(golfer.mental, gameContext);
+        if (outcome !== ShotOutcome.HazardWater) {
+            checkAndShowGolferInitiation(golfer.mental, gameContext);
+        }
     }
     
     // Set PostShot timing window after shot simulation completes
     // Validates: Requirement 2.3
     setTimingWindow(TimingWindow.PostShot);
     updateSpeakButtonVisibility();
+    
+    function createWaterResolvedContinueCallback() {
+        return () => {
+            setTimingWindow(TimingWindow.None);
+            updateSpeakButtonVisibility();
+            const pos = gameState.waterResolvedPosition || { x: finalPosition.x, y: finalPosition.y };
+            ball.setPosition(pos.x, pos.y, 0);
+            const hole = gameState.currentHole.hole;
+            const newAngle = Math.atan2(hole.x - pos.x, pos.y - hole.y) * (180 / Math.PI);
+            clearShotTracer();
+            aimLine.setAngle(newAngle);
+            aimLine.render();
+            const landedOnGreen = (updateBallLie(pos.x, pos.y)?.name === 'Green');
+            updateCameraForBall(pos.x, pos.y, landedOnGreen);
+            updateAimLineMesh(pos.x, pos.y, newAngle);
+            setTimingWindow(TimingWindow.PreShot);
+            updateSpeakButtonVisibility();
+            updateYardageIndicator(gameState, ball);
+        };
+    }
+    
+    // Water hazard: caddy must decide how to resolve before continuing
+    if (shotData && !shotData.isPutt && outcome === ShotOutcome.HazardWater) {
+        gameState.pendingWaterResolution = true;
+        gameState.waterResolutionData = { shotData, finalPosition };
+        const state = getResultState();
+        const options = postShotOptions[ShotOutcome.HazardWater] || [];
+        showDialoguePanel(options, (selectedOptionId) => {
+            handleDialogueSelection(selectedOptionId, options, state);
+            showContinueButton(createWaterResolvedContinueCallback());
+        }, golfer.mental, () => {
+            handleWaterResolutionAction({ action: 'waterDropCrossing' });
+            handleSilenceCallback(state);
+            showContinueButton(createWaterResolvedContinueCallback());
+        }, false);
+        return;
+    }
     
     // Update yardage indicator with new distance to hole
     // Requirements: 11.3 - Show current yardage to the hole

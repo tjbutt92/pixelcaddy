@@ -14,7 +14,7 @@ import {
     worldToCapture, 
     drawTerrainFeatures, 
     drawPathFeatures,
-    calculateHoleBounds,
+    calculateCorridorBounds,
     calculateHoleYardage,
     filterFeaturesForHole
 } from './utils.js';
@@ -79,7 +79,7 @@ function renderCapturedHoleMap(container, hole) {
     // Clear loading message
     mapContainer.innerHTML = '';
     
-    // Get terrain and trees data from world instance, filtered to 100yd corridor
+    // Get full terrain (water, fairways, greens, bunkers, etc.); filter only trees/points to 50yd corridor
     const worldInstance = getWorldInstance();
     let terrain = null;
     let trees = null;
@@ -92,7 +92,8 @@ function renderCapturedHoleMap(container, hole) {
             worldInstance.course.sprinklerHeads,
             worldInstance.course.measurePoints,
             hole,
-            100 // 100 yards either side of centreline
+            50,    // 50yd corridor for trees, sprinkler heads, measure points
+            Infinity  // full terrain: include all fairways, greens, water, bunkers
         );
         terrain = filtered.terrain;
         trees = filtered.trees;
@@ -100,14 +101,14 @@ function renderCapturedHoleMap(container, hole) {
         measurePoints = filtered.measurePoints;
     }
     
-    // Calculate bounds for the hole (reduced padding for tighter zoom)
-    const bounds = calculateHoleBounds(hole, terrain, trees, 5);
+    // Preview view uses 50yd corridor bounding box (not full hole bounds)
+    const bounds = calculateCorridorBounds(hole, 50, 5);
     
-    // Calculate rotation angle to orient tee at bottom, hole at top
-    const teePos = hole.tee;
-    const holePos = hole.hole;
-    const dx = holePos.x - teePos.x;
-    const dy = holePos.y - teePos.y;
+    // Rotation: align tee marker and front-of-green marker vertically (tee bottom, green top)
+    const teeRef = findTeeFront(hole) || hole.tee;
+    const greenRef = findGreenFront(hole) || hole.hole;
+    const dx = greenRef.x - teeRef.x;
+    const dy = greenRef.y - teeRef.y;
     const rotationAngle = Math.atan2(dx, -dy);
     
     // Calculate view dimensions

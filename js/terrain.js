@@ -365,17 +365,21 @@ export function getSlopeAt(hole, x, y) {
 // ============================================
 
 // Find the front of green position (where centreline intersects green zone)
+// When course has multiple holes, hole.zones contains all zones; we need the green
+// that this hole's centreline actually intersects (closest to tee).
 export function findGreenFront(hole) {
     const centreline = hole.centreline;
     
     if (centreline && centreline.length >= 2 && hole.zones) {
-        const greenZone = hole.zones.find(z => z.terrain === TerrainType.GREEN);
-        if (greenZone) {
+        const greenZones = hole.zones.filter(z => z.terrain === TerrainType.GREEN);
+        let best = null; // { x, y, dist } with minimum dist (closest to tee)
+        for (const greenZone of greenZones) {
             const intersection = findCentrelineZoneIntersection(centreline, greenZone, true);
-            if (intersection) {
-                return intersection;
+            if (intersection && (best === null || intersection.dist < best.dist)) {
+                best = intersection;
             }
         }
+        if (best) return { x: best.x, y: best.y };
     }
     
     // Fallback to hole position
@@ -420,18 +424,21 @@ function findCentrelineZoneIntersection(centreline, zone, findFront = false) {
 }
 
 // Find the front of tee box position (where centreline exits tee box toward hole)
+// When course has multiple holes, hole.zones contains all zones; we need the tee
+// that this hole's centreline actually intersects (exit point toward green).
 export function findTeeFront(hole) {
     const centreline = hole.centreline;
     
     if (centreline && centreline.length >= 2 && hole.zones) {
-        const teeZone = hole.zones.find(z => z.terrain === TerrainType.TEE);
-        if (teeZone) {
-            // findFront=false to get the exit point (front of tee toward hole)
+        const teeZones = hole.zones.filter(z => z.terrain === TerrainType.TEE);
+        let best = null; // { x, y, dist } with maximum dist (closest to green = front of tee)
+        for (const teeZone of teeZones) {
             const intersection = findCentrelineZoneIntersection(centreline, teeZone, false);
-            if (intersection) {
-                return intersection;
+            if (intersection && (best === null || intersection.dist > best.dist)) {
+                best = intersection;
             }
         }
+        if (best) return { x: best.x, y: best.y };
     }
     
     // Fallback to tee marker position

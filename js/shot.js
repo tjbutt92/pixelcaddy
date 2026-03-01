@@ -71,21 +71,33 @@ export class ShotSimulator {
         
         console.log(`Shot: ${club.name}, Carry: ${trajectoryResult.carry.toFixed(0)}y`);
         
-        const landingBehavior = calculateLandingBehavior(trajectoryResult, terrain, lie);
-        const screenCoords = this.convertToScreenCoords(start, aimAngle, trajectoryResult, landingBehavior, holeData);
-        
+        // Get landing position first so we can use landing terrain (not start) for bounce/roll
+        const screenCoords = this.convertToScreenCoords(start, aimAngle, trajectoryResult, {}, holeData);
         const elevChange = getElevationChange(holeData, start.x, start.y, screenCoords.land.x, screenCoords.land.y);
         const elevAdjustment = elevChange * 0.9;
         const aimRad = (aimAngle * Math.PI) / 180;
         screenCoords.land.x -= Math.sin(aimRad) * elevAdjustment * screenCoords.yardToUnit;
         screenCoords.land.y += Math.cos(aimRad) * elevAdjustment * screenCoords.yardToUnit;
         
-        // Simple roll calculation - mostly forward with slight slope influence
-        const { finalX, finalY } = this.calculateSimpleRoll(
-            screenCoords.land.x, screenCoords.land.y, start,
-            landingBehavior.rollYards * screenCoords.yardToUnit,
-            landingBehavior.rollDirection, holeData
-        );
+        const landingTerrain = getTerrainAt(holeData, screenCoords.land.x, screenCoords.land.y) || 'fairway';
+        let landingBehavior;
+        let finalX, finalY;
+        
+        if (landingTerrain === 'water') {
+            // Ball landed in water: no bounce, no roll
+            landingBehavior = { bounceHeight: 0, rollYards: 0, rollDirection: 0, checksUp: false, spinsBack: false };
+            finalX = screenCoords.land.x;
+            finalY = screenCoords.land.y;
+        } else {
+            landingBehavior = calculateLandingBehavior(trajectoryResult, landingTerrain, lie);
+            const { finalX: fx, finalY: fy } = this.calculateSimpleRoll(
+                screenCoords.land.x, screenCoords.land.y, start,
+                landingBehavior.rollYards * screenCoords.yardToUnit,
+                landingBehavior.rollDirection, holeData
+            );
+            finalX = fx;
+            finalY = fy;
+        }
         
         const intendedYards = club.yards * (power / 100);
         const actualCarry = trajectoryResult.carry - elevAdjustment;
@@ -96,6 +108,9 @@ export class ShotSimulator {
             distanceError: actualCarry - intendedYards,  // Use carry for dispersion, not total
             directionError: trajectoryResult.lateral,
             isMiss: variability.isMiss || variability.isDisaster,
+            landedInWater: landingTerrain === 'water',
+            shotStartPosition: { x: start.x, y: start.y },
+            ...(landingTerrain === 'water' && { waterPosition: { x: finalX, y: finalY } }),
             lie: { type: lie.type, name: lie.data.name, effects: lie.data.effects },
             launch: {
                 ballSpeed: launchConditions.ballSpeedMPH,
@@ -572,6 +587,12 @@ export class ShotSimulator {
                 requestAnimationFrame(animateFlight);
             } else {
                 self.ball.setPosition(land.x, land.y, 0);
+                // Landed in water: no bounce or roll
+                if (shotData.landedInWater) {
+                    self.isAnimating = false;
+                    if (self.onComplete) self.onComplete(final, shotData);
+                    return;
+                }
                 // Bounce then roll, or just roll - both with slope influence
                 if (landingBehavior.bounceHeight > 0.5) {
                     self.animateSimpleBounce(land, final, landingBehavior, rollDuration, shotData, holeData);
@@ -749,6 +770,13 @@ export class ShotSimulator {
         // Simulate the roll physics to get the path
         const rollPath = this.simulateGroundRoll(start, dx / intendedDist, dy / intendedDist, intendedDist, baseFriction, holeData);
         
+        if (rollPath.inWater && rollPath.lastDryPoint) {
+            shotData.rolledIntoWater = true;
+            shotData.waterLastDryPoint = rollPath.lastDryPoint;
+            const lastPt = rollPath.path[rollPath.path.length - 1];
+            if (lastPt) shotData.waterPosition = { x: lastPt.x, y: lastPt.y };
+        }
+        
         // Animate along the simulated path
         const self = this;
         const animDuration = Math.max(500, Math.min(2000, rollPath.duration));
@@ -850,6 +878,8 @@ export class ShotSimulator {
         let t = 0;
         let stepCount = 0;
         let holed = false;
+        let inWater = false;
+        let lastDryPoint = null;
         
         while (t < maxTime) {
             const speed = Math.sqrt(velX * velX + velY * velY);
@@ -877,6 +907,9 @@ export class ShotSimulator {
             
             // Stop when ball is essentially stopped
             if (speed < 0.0003) break;
+            
+            const prevX = x;
+            const prevY = y;
             
             // Get slope at current position
             const slope = getSlopeAt(holeData, x, y);
@@ -914,6 +947,15 @@ export class ShotSimulator {
             x += velX * dt;
             y += velY * dt;
             
+            // Stop if ball has rolled into water
+            const rollTerrain = getTerrainAt(holeData, x, y);
+            if (rollTerrain === 'water') {
+                inWater = true;
+                lastDryPoint = { x: prevX, y: prevY };
+                path.push({ x, y, speed: 0, inWater: true });
+                break;
+            }
+            
             // Store path points
             stepCount++;
             if (stepCount % 3 === 0) {
@@ -940,6 +982,8 @@ export class ShotSimulator {
         return {
             path,
             holed,
+            inWater,
+            lastDryPoint,
             duration: Math.max(500, Math.min(2500, t * 400))
         };
     }

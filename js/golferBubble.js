@@ -227,6 +227,7 @@ export function showGolferBubble(message, onTap, onIgnore = null) {
 
     // Trigger show animation
     requestAnimationFrame(() => {
+        if (!bubbleContainer || !isBubbleOpen) return;
         bubbleContainer.style.opacity = '1';
         bubbleContainer.style.transform = 'translateX(-50%) translateY(0)';
         

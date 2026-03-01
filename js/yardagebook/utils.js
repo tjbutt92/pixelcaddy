@@ -126,6 +126,59 @@ export function drawTerrainFeatures(ctx, features, worldToCanvas) {
 }
 
 /**
+ * Calculate the bounding box for the hole's centreline corridor.
+ * Used for the yardbook preview view so the map is framed to the corridor only.
+ *
+ * @param {Object} hole - Hole data with centreline (or tee/hole for fallback)
+ * @param {number} corridorYards - Half-width of corridor in yards (e.g. 50 = 50yd each side)
+ * @param {number} padding - Padding in world units (default: 5)
+ * @returns {Object} Bounds { minX, maxX, minY, maxY }
+ */
+export function calculateCorridorBounds(hole, corridorYards, padding = 5) {
+    let centreline;
+    if (hole.centreline && hole.centreline.length >= 2) {
+        centreline = hole.centreline;
+    } else if (hole.tee && hole.hole) {
+        centreline = [[hole.tee.x, hole.tee.y], [hole.hole.x, hole.hole.y]];
+    } else {
+        return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+    }
+    const offsetWorld = corridorYards / 4; // 4 yards per world unit
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < centreline.length; i++) {
+        const [x, y] = centreline[i];
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+    }
+    for (let i = 0; i < centreline.length - 1; i++) {
+        const [x1, y1] = centreline[i];
+        const [x2, y2] = centreline[i + 1];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+            const perpX = -dy / len;
+            const perpY = dx / len;
+            const o = offsetWorld;
+            for (const [x, y] of [[x1, y1], [x2, y2]]) {
+                minX = Math.min(minX, x - perpX * o, x + perpX * o);
+                maxX = Math.max(maxX, x - perpX * o, x + perpX * o);
+                minY = Math.min(minY, y - perpY * o, y + perpY * o);
+                maxY = Math.max(maxY, y - perpY * o, y + perpY * o);
+            }
+        }
+    }
+    if (minX === Infinity) return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+    minX -= padding;
+    maxX += padding;
+    minY -= padding;
+    maxY += padding;
+    return { minX, maxX, minY, maxY };
+}
+
+/**
  * Calculate the bounding box for a hole including all terrain and trees
  * Used for determining map view extents
  * 
@@ -721,10 +774,11 @@ function isFeatureNearCentreline(feature, centreline, maxDist) {
  * @param {Array} sprinklerHeads - Full course sprinkler heads array
  * @param {Array} measurePoints - Full course measure points array
  * @param {Object} hole - The hole data (needs centreline, tee, hole)
- * @param {number} corridorYards - Corridor half-width in yards (default 100)
+ * @param {number} corridorYards - Corridor half-width in yards for trees/points (default 100)
+ * @param {number} [terrainCorridorYards] - Corridor for terrain; if omitted uses corridorYards. Use Infinity to include all terrain.
  * @returns {Object} Filtered { terrain, trees, sprinklerHeads, measurePoints }
  */
-export function filterFeaturesForHole(terrain, trees, sprinklerHeads, measurePoints, hole, corridorYards = 100) {
+export function filterFeaturesForHole(terrain, trees, sprinklerHeads, measurePoints, hole, corridorYards = 100, terrainCorridorYards) {
     // Build centreline: use hole.centreline if available, otherwise tee-to-hole straight line
     let centreline;
     if (hole.centreline && hole.centreline.length >= 2) {
@@ -736,24 +790,31 @@ export function filterFeaturesForHole(terrain, trees, sprinklerHeads, measurePoi
         return { terrain, trees, sprinklerHeads, measurePoints };
     }
     
-    const maxDist = corridorYards / 4; // Convert yards to world units (4 yards per world unit)
+    const maxDist = corridorYards / 4; // world units for trees/sprinklers/measure points
+    const terrainMaxDist = (terrainCorridorYards != null && terrainCorridorYards !== Infinity)
+        ? terrainCorridorYards / 4
+        : null; // null = include all terrain (fairways, greens, water, etc.)
     
-    // Filter terrain features by type
+    // Filter terrain features by type (skip if terrainMaxDist is null = include all)
     let filteredTerrain = null;
     if (terrain) {
-        filteredTerrain = {};
-        const featureTypes = ['fairway', 'teeBox', 'bunker', 'water', 'green', 'outOfBounds'];
-        featureTypes.forEach(type => {
-            if (terrain[type]) {
-                filteredTerrain[type] = terrain[type].filter(f => isFeatureNearCentreline(f, centreline, maxDist));
-            }
-        });
-        // Filter paths - keep path segments where any point is within corridor
-        if (terrain.path) {
-            filteredTerrain.path = terrain.path.filter(path => {
-                if (!path.points) return false;
-                return path.points.some(p => distToCentreline(p[0], p[1], centreline) <= maxDist);
+        if (terrainMaxDist == null) {
+            filteredTerrain = terrain; // full terrain: fairways, greens, water, etc.
+        } else {
+            filteredTerrain = {};
+            const featureTypes = ['fairway', 'teeBox', 'bunker', 'water', 'green', 'outOfBounds'];
+            featureTypes.forEach(type => {
+                if (terrain[type]) {
+                    filteredTerrain[type] = terrain[type].filter(f => isFeatureNearCentreline(f, centreline, terrainMaxDist));
+                }
             });
+            // Filter paths - keep path segments where any point is within corridor
+            if (terrain.path) {
+                filteredTerrain.path = terrain.path.filter(path => {
+                    if (!path.points) return false;
+                    return path.points.some(p => distToCentreline(p[0], p[1], centreline) <= terrainMaxDist);
+                });
+            }
         }
     }
     
