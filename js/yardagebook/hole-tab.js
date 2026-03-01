@@ -15,7 +15,8 @@ import {
     drawTerrainFeatures, 
     drawPathFeatures,
     calculateHoleBounds,
-    calculateHoleYardage
+    calculateHoleYardage,
+    filterFeaturesForHole
 } from './utils.js';
 import { THEME_COLORS } from '../theme-colors.js';
 import { getWorldInstance } from './index.js';
@@ -78,13 +79,25 @@ function renderCapturedHoleMap(container, hole) {
     // Clear loading message
     mapContainer.innerHTML = '';
     
-    // Get terrain and trees data from world instance
+    // Get terrain and trees data from world instance, filtered to 100yd corridor
     const worldInstance = getWorldInstance();
     let terrain = null;
     let trees = null;
+    let sprinklerHeads = null;
+    let measurePoints = null;
     if (worldInstance && worldInstance.course) {
-        terrain = worldInstance.course.terrain;
-        trees = worldInstance.course.trees;
+        const filtered = filterFeaturesForHole(
+            worldInstance.course.terrain,
+            worldInstance.course.trees,
+            worldInstance.course.sprinklerHeads,
+            worldInstance.course.measurePoints,
+            hole,
+            100 // 100 yards either side of centreline
+        );
+        terrain = filtered.terrain;
+        trees = filtered.trees;
+        sprinklerHeads = filtered.sprinklerHeads;
+        measurePoints = filtered.measurePoints;
     }
     
     // Calculate bounds for the hole (reduced padding for tighter zoom)
@@ -212,7 +225,7 @@ function renderCapturedHoleMap(container, hole) {
     mapContainer.appendChild(canvas);
     
     // Add overlays (yardage markers, terrain outlines, etc.) - slope arrows now on canvas
-    renderYardageOverlays(mapContainer, hole, captureData);
+    renderYardageOverlays(mapContainer, hole, captureData, terrain, trees, sprinklerHeads, measurePoints);
     
     // Add compass rose
     addCompassRose(mapContainer, rotationAngle);
@@ -533,8 +546,10 @@ function calculateReferencePoints(hole) {
  * @param {HTMLElement} container - The map container element
  * @param {Object} hole - The hole data object
  * @param {Object} captureData - Capture configuration for coordinate transforms
+ * @param {Object} filteredTerrain - Pre-filtered terrain features for this hole
+ * @param {Array} filteredTrees - Pre-filtered trees for this hole
  */
-function renderYardageOverlays(container, hole, captureData) {
+function renderYardageOverlays(container, hole, captureData, filteredTerrain, filteredTrees, filteredSprinklerHeads, filteredMeasurePoints) {
     // Create SVG overlay for circles and labels
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('class', 'yardage-overlay-svg');
@@ -590,22 +605,22 @@ function renderYardageOverlays(container, hole, captureData) {
 
     // === LAYER 4: Hazard cover yardages (top) ===
     if (hole.centreline && teeFront) {
-        addHazardCoverYardages(svg, labelsGroup, hole, teeFront, captureData, occupiedPositions);
+        addHazardCoverYardages(svg, labelsGroup, hole, teeFront, captureData, occupiedPositions, filteredTerrain);
     }
     
     // === LAYER 5: Tree yardages ===
     if (teeFront && greenFront) {
-        addTreeYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions);
+        addTreeYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions, filteredTrees);
     }
     
     // === LAYER 6: Sprinkler head yardages ===
     if (teeFront && greenFront) {
-        addSprinklerHeadYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions);
+        addSprinklerHeadYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions, filteredSprinklerHeads);
     }
     
     // === LAYER 7: Measure point yardages ===
     if (teeFront && greenFront) {
-        addMeasurePointYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions);
+        addMeasurePointYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions, filteredMeasurePoints);
     }
     
     // Append labels group last so labels are on top of everything
@@ -975,12 +990,8 @@ function addSlopeArrows(svg, hole, captureData) {
  * @param {Object} captureData - Capture configuration
  * @param {Array} occupiedPositions - Already occupied label positions
  */
-function addHazardCoverYardages(svg, labelsGroup, hole, teeFront, captureData, occupiedPositions) {
-    const worldInstance = getWorldInstance();
-    let terrain = null;
-    if (worldInstance && worldInstance.course && worldInstance.course.terrain) {
-        terrain = worldInstance.course.terrain;
-    }
+function addHazardCoverYardages(svg, labelsGroup, hole, teeFront, captureData, occupiedPositions, filteredTerrain) {
+    const terrain = filteredTerrain;
     
     if (!terrain || !teeFront) return;
     
@@ -1218,12 +1229,8 @@ function findClosestPointOnPolygon(point, polygonPoints) {
  * @param {Object} captureData - Capture configuration
  * @param {Array} occupiedPositions - Already occupied label positions
  */
-function addTreeYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions) {
-    const worldInstance = getWorldInstance();
-    let trees = null;
-    if (worldInstance && worldInstance.course && worldInstance.course.trees) {
-        trees = worldInstance.course.trees;
-    }
+function addTreeYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions, filteredTrees) {
+    const trees = filteredTrees;
     
     if (!trees || trees.length === 0) return;
     
@@ -1321,12 +1328,8 @@ function addTreeYardages(svg, labelsGroup, hole, teeFront, greenFront, captureDa
  * @param {Object} captureData - Capture configuration
  * @param {Array} occupiedPositions - Already occupied label positions
  */
-function addSprinklerHeadYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions) {
-    const worldInstance = getWorldInstance();
-    let sprinklerHeads = null;
-    if (worldInstance && worldInstance.course && worldInstance.course.sprinklerHeads) {
-        sprinklerHeads = worldInstance.course.sprinklerHeads;
-    }
+function addSprinklerHeadYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions, filteredSprinklerHeads) {
+    const sprinklerHeads = filteredSprinklerHeads;
     
     if (!sprinklerHeads || sprinklerHeads.length === 0) return;
     
@@ -1384,12 +1387,8 @@ function addSprinklerHeadYardages(svg, labelsGroup, hole, teeFront, greenFront, 
  * @param {Object} captureData - Capture configuration
  * @param {Array} occupiedPositions - Already occupied label positions
  */
-function addMeasurePointYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions) {
-    const worldInstance = getWorldInstance();
-    let measurePoints = null;
-    if (worldInstance && worldInstance.course && worldInstance.course.measurePoints) {
-        measurePoints = worldInstance.course.measurePoints;
-    }
+function addMeasurePointYardages(svg, labelsGroup, hole, teeFront, greenFront, captureData, occupiedPositions, filteredMeasurePoints) {
+    const measurePoints = filteredMeasurePoints;
     
     if (!measurePoints || measurePoints.length === 0) return;
     

@@ -414,6 +414,7 @@ const gameState = {
     shape: 'Straight',
     strokes: 0,
     currentHole: null,
+    currentHoleIndex: 0,
     currentLie: null,
     courseBounds: null,
     wind: { speed: 0, direction: 0 },
@@ -456,6 +457,7 @@ function initGame() {
     const container = document.querySelector('.golf-hole');
     
     // Build hole data
+    gameState.currentHoleIndex = 0;
     const holeData = course.holes[0];
     const zones = buildZonesFromTerrain(course.terrain || {});
     hole1 = { ...holeData, zones, trees: course.trees || [] };
@@ -546,16 +548,15 @@ function initGame() {
     aimLine.setScreenToGroundPoint(screenToGroundPoint);
     aimLine.setAimAtPoint(aimAtPoint);
     
-    // Point aim along hole centreline (first segment of centreline)
-    const centreline = gameState.currentHole.centreline;
-    const p1 = centreline[0];
-    const p2 = centreline[1];
-    const centrelineAngle = Math.atan2(p2[0] - p1[0], p1[1] - p2[1]) * (180 / Math.PI);
+    // Point aim from tee toward hole
+    const teePos = gameState.currentHole.tee;
+    const holePos = gameState.currentHole.hole;
+    const centrelineAngle = Math.atan2(holePos.x - teePos.x, teePos.y - holePos.y) * (180 / Math.PI);
     aimLine.setAngle(centrelineAngle);
     const ballPos = ball.getPosition();
     updateAimLineMesh(ballPos.x, ballPos.y, centrelineAngle);
     
-    // Position camera behind ball, looking along hole centreline
+    // Position camera behind ball, looking toward hole
     updateCameraForBallAlongCentreline(hole1.tee.x, hole1.tee.y, centrelineAngle);
     
     // Setup shot simulator
@@ -1402,8 +1403,8 @@ function onShotComplete(finalPosition, shotData) {
                 setTimingWindow(TimingWindow.None);
                 updateSpeakButtonVisibility();
                 
-                // TODO: Transition to next hole
-                console.log('Ready for next hole');
+                // Advance to next hole or finish the round
+                advanceToNextHole();
             });
         });
         return;
@@ -1435,7 +1436,7 @@ function onShotComplete(finalPosition, shotData) {
         // Check if golfer should initiate conversation after this shot
         // Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5
         const gameContext = {
-            holeNumber: 1, // TODO: Track actual hole number
+            holeNumber: gameState.currentHoleIndex + 1,
             isStartOfHole: false,
             strokesOnHole: gameState.strokes
         };
@@ -1494,6 +1495,114 @@ function onShotComplete(finalPosition, shotData) {
             });
         }
     });
+}
+
+/**
+ * Advance to the next hole or finish the round
+ */
+function advanceToNextHole() {
+    const nextIndex = gameState.currentHoleIndex + 1;
+    
+    // Check if there are more holes
+    if (nextIndex >= course.holes.length) {
+        showRoundComplete();
+        return;
+    }
+    
+    gameState.currentHoleIndex = nextIndex;
+    const holeData = course.holes[nextIndex];
+    const zones = buildZonesFromTerrain(course.terrain || {});
+    const newHole = { ...holeData, zones, trees: course.trees || [] };
+    
+    // If tee is null, use the previous hole's cup position
+    if (!newHole.tee) {
+        const prevHole = course.holes[nextIndex - 1];
+        newHole.tee = { x: prevHole.hole.x, y: prevHole.hole.y };
+    }
+    
+    // Update game state
+    gameState.currentHole = newHole;
+    gameState.strokes = 0;
+    gameState.wind = initializeWind();
+    
+    // Reset club to default
+    gameState.club = clubs[0];
+    gameState.power = 100;
+    gameState.shape = 'Straight';
+    
+    // Update 3D world for new hole
+    world.setHole(holeData.number);
+    
+    // Clear any leftover shot tracer
+    clearShotTracer();
+    clearPuttSimulationPaths();
+    resetSimulatePuttButton();
+    
+    // Reset simulation states
+    resetSimulationState();
+    resetConcernsState();
+    hideConcernsBubble();
+    hidePredictionLine();
+    
+    // Move ball to new tee
+    ball.setPosition(newHole.tee.x, newHole.tee.y);
+    updateBallMeshPosition();
+    updateBallLie(newHole.tee.x, newHole.tee.y);
+    
+    // Point aim from tee toward hole
+    let centrelineAngle = 0;
+    if (newHole.hole) {
+        centrelineAngle = Math.atan2(
+            newHole.hole.x - newHole.tee.x,
+            newHole.tee.y - newHole.hole.y
+        ) * (180 / Math.PI);
+    }
+    
+    aimLine.setAngle(centrelineAngle);
+    aimLine.render();
+    updateAimLineMesh(newHole.tee.x, newHole.tee.y, centrelineAngle);
+    updateCameraForBallAlongCentreline(newHole.tee.x, newHole.tee.y, centrelineAngle);
+    
+    if (gameState.updateWindDisplay) gameState.updateWindDisplay(centrelineAngle);
+    
+    // Update UI
+    updateYardageIndicator(gameState, ball);
+    updateStatsHUD(golfer.mental);
+    
+    // Set StartOfHole timing window
+    setTimingWindow(TimingWindow.StartOfHole);
+    updateSpeakButtonVisibility();
+    
+    console.log(`Advanced to Hole ${holeData.number} - Par ${holeData.par}, ${holeData.yards} yards`);
+    
+    // Check for golfer initiation on new hole
+    setTimeout(() => {
+        const gameContext = {
+            holeNumber: nextIndex + 1,
+            isStartOfHole: true,
+            strokesOnHole: 0
+        };
+        checkAndShowGolferInitiation(golfer.mental, gameContext);
+    }, 1500);
+}
+
+/**
+ * Show round complete message when all holes are finished
+ */
+function showRoundComplete() {
+    const existing = document.querySelector('.holed-overlay');
+    if (existing) existing.remove();
+    
+    const overlay = document.createElement('div');
+    overlay.className = 'holed-overlay';
+    overlay.innerHTML = `
+        <div class="holed-message">
+            <div class="holed-text">ROUND COMPLETE</div>
+            <div class="holed-strokes">${course.holes.length} holes played</div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    console.log('Round complete!');
 }
 
 /**

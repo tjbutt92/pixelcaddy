@@ -1323,10 +1323,12 @@ export class World {
         );
 
         // Create tee marker
-        this.teeMarker = this.createTeeMarker(
-            this.currentHole.tee.x,
-            this.currentHole.tee.y
-        );
+        if (this.currentHole.tee) {
+            this.teeMarker = this.createTeeMarker(
+                this.currentHole.tee.x,
+                this.currentHole.tee.y
+            );
+        }
         
         // Create yardage markers (100, 150, 200 yards from green)
         this.createYardageMarkers();

@@ -632,6 +632,149 @@ export function drawTree2DCanopy(ctx, pos, canopyRadius, category, seed, viewWid
 
 
 /**
+ * Calculate the distance from a point to the nearest centreline segment.
+ * 
+ * @param {number} px - Point X coordinate
+ * @param {number} py - Point Y coordinate
+ * @param {Array} centreline - Array of [x, y] centreline points
+ * @returns {number} Minimum distance to centreline in world units
+ */
+function distToCentreline(px, py, centreline) {
+    let minDist = Infinity;
+    for (let i = 0; i < centreline.length - 1; i++) {
+        const [x1, y1] = centreline[i];
+        const [x2, y2] = centreline[i + 1];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len2 = dx * dx + dy * dy;
+        let t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+        const cx = x1 + t * dx;
+        const cy = y1 + t * dy;
+        const d = Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+        if (d < minDist) minDist = d;
+    }
+    return minDist;
+}
+
+/**
+ * Get the centre point of a terrain feature.
+ * 
+ * @param {Object} feature - Terrain feature (polygon, ellipse, or rect)
+ * @returns {Object|null} Centre point {x, y} or null
+ */
+function getFeatureCentre(feature) {
+    if (feature.shape === 'ellipse') {
+        return { x: feature.cx, y: feature.cy };
+    } else if (feature.shape === 'rect') {
+        return { x: feature.x + feature.width / 2, y: feature.y + feature.height / 2 };
+    } else if (feature.shape === 'polygon' && feature.points && feature.points.length > 0) {
+        const cx = feature.points.reduce((s, p) => s + p[0], 0) / feature.points.length;
+        const cy = feature.points.reduce((s, p) => s + p[1], 0) / feature.points.length;
+        return { x: cx, y: cy };
+    }
+    return null;
+}
+
+/**
+ * Check if any point of a terrain feature is within maxDist of the centreline.
+ * Uses centre point plus boundary sampling for accuracy.
+ * 
+ * @param {Object} feature - Terrain feature
+ * @param {Array} centreline - Centreline points
+ * @param {number} maxDist - Maximum distance in world units
+ * @returns {boolean}
+ */
+function isFeatureNearCentreline(feature, centreline, maxDist) {
+    // Check centre first (fast path)
+    const centre = getFeatureCentre(feature);
+    if (!centre) return false;
+    if (distToCentreline(centre.x, centre.y, centreline) <= maxDist) return true;
+    
+    // Check boundary points for large features that might straddle the corridor
+    if (feature.shape === 'polygon' && feature.points) {
+        return feature.points.some(p => distToCentreline(p[0], p[1], centreline) <= maxDist);
+    } else if (feature.shape === 'rect') {
+        const corners = [
+            [feature.x, feature.y],
+            [feature.x + feature.width, feature.y],
+            [feature.x + feature.width, feature.y + feature.height],
+            [feature.x, feature.y + feature.height]
+        ];
+        return corners.some(([x, y]) => distToCentreline(x, y, centreline) <= maxDist);
+    } else if (feature.shape === 'ellipse') {
+        // Sample 8 points around the ellipse
+        for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+            const x = feature.cx + feature.rx * Math.cos(a);
+            const y = feature.cy + feature.ry * Math.sin(a);
+            if (distToCentreline(x, y, centreline) <= maxDist) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Filter terrain features, trees, sprinkler heads, and measure points
+ * to only those within a corridor around the hole's centreline.
+ * 
+ * @param {Object} terrain - Full course terrain data
+ * @param {Array} trees - Full course trees array
+ * @param {Array} sprinklerHeads - Full course sprinkler heads array
+ * @param {Array} measurePoints - Full course measure points array
+ * @param {Object} hole - The hole data (needs centreline, tee, hole)
+ * @param {number} corridorYards - Corridor half-width in yards (default 100)
+ * @returns {Object} Filtered { terrain, trees, sprinklerHeads, measurePoints }
+ */
+export function filterFeaturesForHole(terrain, trees, sprinklerHeads, measurePoints, hole, corridorYards = 100) {
+    // Build centreline: use hole.centreline if available, otherwise tee-to-hole straight line
+    let centreline;
+    if (hole.centreline && hole.centreline.length >= 2) {
+        centreline = hole.centreline;
+    } else if (hole.tee && hole.hole) {
+        centreline = [[hole.tee.x, hole.tee.y], [hole.hole.x, hole.hole.y]];
+    } else {
+        // Can't filter without a centreline, return everything
+        return { terrain, trees, sprinklerHeads, measurePoints };
+    }
+    
+    const maxDist = corridorYards / 4; // Convert yards to world units (4 yards per world unit)
+    
+    // Filter terrain features by type
+    let filteredTerrain = null;
+    if (terrain) {
+        filteredTerrain = {};
+        const featureTypes = ['fairway', 'teeBox', 'bunker', 'water', 'green', 'outOfBounds'];
+        featureTypes.forEach(type => {
+            if (terrain[type]) {
+                filteredTerrain[type] = terrain[type].filter(f => isFeatureNearCentreline(f, centreline, maxDist));
+            }
+        });
+        // Filter paths - keep path segments where any point is within corridor
+        if (terrain.path) {
+            filteredTerrain.path = terrain.path.filter(path => {
+                if (!path.points) return false;
+                return path.points.some(p => distToCentreline(p[0], p[1], centreline) <= maxDist);
+            });
+        }
+    }
+    
+    // Filter trees
+    const filteredTrees = trees ? trees.filter(t => distToCentreline(t.x, t.y, centreline) <= maxDist) : null;
+    
+    // Filter sprinkler heads
+    const filteredSprinklers = sprinklerHeads ? sprinklerHeads.filter(s => distToCentreline(s.x, s.y, centreline) <= maxDist) : null;
+    
+    // Filter measure points
+    const filteredMeasures = measurePoints ? measurePoints.filter(m => distToCentreline(m.x, m.y, centreline) <= maxDist) : null;
+    
+    return {
+        terrain: filteredTerrain,
+        trees: filteredTrees,
+        sprinklerHeads: filteredSprinklers,
+        measurePoints: filteredMeasures
+    };
+}
+
+/**
  * Calculate hole yardage from centreline or tee-to-hole distance.
  * Uses front of tee to front of green along centreline.
  * 
